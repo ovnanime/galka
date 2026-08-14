@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Галка: Планы и заметки</string>
+    <string name="title_activity_main">Галка: Планы и заметки</string>
+    <string name="app_short_name">Галка</string>
+    <string name="app_slogan">Не забудь про галочку!</string>
+    <string name="app_developer">Феофилакт Птахен</string>
+    <string name="app_category">Планировщик / Производительность</string>
+    <string name="app_description">«Галка» — простой и удобный планировщик для задач, заметок и важных дел. Пользователь может записывать планы на сегодня или любую другую дату, создавать заметки, устанавливать напоминания и отмечать выполненные задачи галочкой. Главная идея приложения — собрать всё важное в одном месте без перегруженного интерфейса и лишней сложности.</string>
+    <string name="app_principle">записал → не забыл → сделал → поставил галочку</string>
+    <string name="app_style">монохромный, тёмный, минималистичный</string>
+    <string name="app_features">задачи; заметки; привязка задач к датам; календарь; отметка выполненного галочкой; напоминания; просмотр дел на сегодня и будущие дни</string>
+    <string name="app_keywords">календарь, задачи, заметки, планы, напоминания</string>
+    <string name="app_character">простой, понятный, аккуратный и визуально цельный</string>
+    <string name="app_brand_association">галка как птица и галочка ✓ как символ выполненного дела</string>
+    <string name="package_name">com.ptashka.dayplan</string>
+    <string name="custom_url_scheme">com.ptashka.dayplan</string>
+    <string name="exit_title">Выход</string>
+    <string name="exit_message">Вы точно хотите выйти?</string>
+    <string name="exit_cancel">Отмена</string>
+    <string name="exit_confirm">Выйти</string>
+</resources>

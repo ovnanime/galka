@@ -1,0 +1,30 @@
+# Зависимости
+node_modules/
+
+# Сборка Android
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+
+# Генерируется командой npx cap sync — в репозитории не нужно
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/capacitor-cordova-android-plugins/
+android/capacitor.settings.gradle
+android/app/capacitor.build.gradle
+
+# Подпись приложения. Ключ и пароли не должны попасть в репозиторий:
+# кто угодно сможет выпустить обновление от твоего имени.
+*.jks
+*.keystore
+keystore.properties
+
+# Среда разработки
+.idea/
+*.iml
+
+# Система
+.DS_Store
+Thumbs.db

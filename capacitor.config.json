@@ -1,0 +1,14 @@
+{
+  "appId": "com.ptashka.dayplan",
+  "appName": "Галка: Планы и заметки",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#0B0D10"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_dayplan",
+      "iconColor": "#6E8BFF"
+    }
+  }
+}

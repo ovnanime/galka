@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Фон запуска и окна. Совпадает с фоном тёмной темы в вебе,
+         чтобы при старте не было белой вспышки. -->
+    <color name="appBg">#0B0D10</color>
+</resources>
