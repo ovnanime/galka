@@ -32,8 +32,9 @@ const APP_META = {
 
 const APP_LINKS = {
   support: 'https://pay.cloudtips.ru/p/d90ce98a',
-  // Заполняется после выбора места для файла обновлений.
-  updateManifest: ''
+  // raw.githubusercontent отдаёт разрешающий заголовок CORS,
+  // поэтому запрос из приложения проходит без прокси.
+  updateManifest: 'https://raw.githubusercontent.com/ovnanime/galka/main/update.json'
 };
 
 /* ---------- состояние экрана ---------- */

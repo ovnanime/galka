@@ -127,6 +127,48 @@ build-preview.js     сборка www/ в один файл (только для
 а каждой задаче без `groupId` выдаёт свой. Ранее созданные задачи остаются на своих
 датах и становятся обычными разовыми.
 
+## Подпись и выпуск версий
+
+### Ключ
+
+Обновление обязано быть подписано тем же ключом, что и установленная версия,
+иначе Android откажется ставить его поверх. Потеря ключа означает, что всем
+придётся удалять приложение и терять задачи — они лежат в хранилище вебвью
+и уходят вместе с ним.
+
+Ключ создаётся один раз и хранится вне репозитория:
+
+```bash
+& 'C:\Program Files\Eclipse Adoptium\jdk-17.0.1.12-hotspot\bin\keytool.exe' -genkeypair -v -keystore D:\Android\keys\galka-release.jks -alias galka -keyalg RSA -keysize 4096 -validity 10000
+```
+
+Дальше нужно скопировать `android/keystore.properties.example`
+в `android/keystore.properties` и вписать туда пароли. Оба файла — и `.jks`,
+и `keystore.properties` — перечислены в `.gitignore`.
+
+`android/app/build.gradle` подхватывает их сам. Если файла нет, сборка не падает:
+`release` просто остаётся без подписи, а `debug` работает как раньше.
+
+Собрать подписанный APK:
+
+```bash
+cd D:\Projects\dayplan\android; .\gradlew.bat assembleRelease
+```
+
+Результат: `android/app/build/outputs/apk/release/app-release.apk`
+
+### Выпуск
+
+1. Поднять `versionCode` и `versionName` в `android/app/build.gradle`.
+   `versionCode` обязан расти, иначе установка поверх не пройдёт.
+2. Собрать `assembleRelease`.
+3. Создать релиз на GitHub и приложить APK файлом.
+4. Обновить `update.json` в корне репозитория: `versionCode`, `versionName`,
+   `notes` и `downloadUrl` со ссылкой на APK из релиза.
+
+Приложение сравнивает `versionCode` из файла с установленным и предлагает
+скачать обновление. Адрес файла задаётся в `APP_LINKS.updateManifest` (`www/app.js`).
+
 ## Сборка APK
 
 Android SDK уже установлен в `D:\Android\Sdk`, путь прописан в `android/local.properties`.
