@@ -30,6 +30,16 @@ const APP_META = {
   principle: 'записал → не забыл → сделал → поставил галочку'
 };
 
+/**
+ * Куда собирается приложение.
+ *
+ * 'github' — раздача файлом, есть проверка обновлений.
+ * 'store'  — сборка для магазина: раздел обновлений скрыт. Магазины
+ *            запрещают приложениям обновлять себя в обход магазина,
+ *            обновления там раздаёт сам магазин.
+ */
+const DISTRIBUTION = 'github';
+
 const APP_LINKS = {
   support: 'https://pay.cloudtips.ru/p/d90ce98a',
   // raw.githubusercontent отдаёт разрешающий заголовок CORS,
@@ -642,11 +652,12 @@ function renderSettings() {
           <div class="lbl"><b>Поддержка</b><small>Донаты и поддержка проекта</small></div>
           <span class="setting-chevron">${ICON.chev}</span>
         </button>
+        ${DISTRIBUTION === 'store' ? '' : `
         <button type="button" class="row tap setting-action" data-update>
           <span class="setting-icon">${ICON.refresh}</span>
           <div class="lbl"><b>Проверить обновление</b><small>Установлена версия ${esc(appVersion.name)}</small></div>
           <span class="setting-chevron">${ICON.chev}</span>
-        </button>
+        </button>`}
       </div>
     </div>
   `;
@@ -1302,7 +1313,7 @@ async function handleSettingsClick(e) {
 
   if (e.target.closest('[data-about]')) { openAbout(); return; }
   if (e.target.closest('[data-support]')) { openSupport(); return; }
-  if (e.target.closest('[data-update]')) { checkForUpdates(); }
+  if (DISTRIBUTION !== 'store' && e.target.closest('[data-update]')) { checkForUpdates(); }
 }
 
 function handleSettingsChange(e) {
