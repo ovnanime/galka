@@ -142,9 +142,30 @@ build-preview.js     сборка www/ в один файл (только для
 & 'C:\Program Files\Eclipse Adoptium\jdk-17.0.1.12-hotspot\bin\keytool.exe' -genkeypair -v -keystore D:\Android\keys\galka-release.jks -alias galka -keyalg RSA -keysize 4096 -validity 10000
 ```
 
-Дальше нужно скопировать `android/keystore.properties.example`
-в `android/keystore.properties` и вписать туда пароли. Оба файла — и `.jks`,
-и `keystore.properties` — перечислены в `.gitignore`.
+Дальше рядом с проектом создаётся файл `android/keystore.properties`:
+
+```
+storeFile=D:/Android/keys/galka-release.jks
+storePassword=пароль хранилища
+keyAlias=galka
+keyPassword=пароль ключа
+```
+
+Пути пишутся через прямую косую черту: обратную Gradle прочитает как экранирование.
+И `.jks`, и `keystore.properties` перечислены в `.gitignore` — в репозиторий они не попадают.
+Образца этого файла в проекте намеренно нет, чтобы пароль некуда было вписать по ошибке.
+
+Отпечаток сертификата, которым подписан релиз:
+
+```
+SHA-256: d47a70456ac5aee8473ff1214d2271958bfc1070a2a3a586a03490f272af1ca7
+```
+
+Проверить подпись собранного APK:
+
+```bash
+& 'D:\Android\Sdk\build-tools\34.0.0\apksigner.bat' verify --print-certs android\app\build\outputs\apk\release\app-release.apk
+```
 
 `android/app/build.gradle` подхватывает их сам. Если файла нет, сборка не падает:
 `release` просто остаётся без подписи, а `debug` работает как раньше.
