@@ -785,7 +785,10 @@ async function checkForUpdates() {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12000);
   try {
-    const response = await fetch(APP_LINKS.updateManifest, { cache: 'no-store', signal: controller.signal });
+    // cache: 'no-store' отключает кеш вебвью, но не кеш CDN GitHub —
+    // тот держит файл несколько минут. Уникальный параметр обходит и его.
+    const url = `${APP_LINKS.updateManifest}?t=${Date.now()}`;
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const latest = await response.json();
     const latestCode = Number(latest.versionCode);
