@@ -628,6 +628,41 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor;
 .pick-count b { color: var(--text); font-weight: 650; }
 .pick-clear { margin-left: auto; color: var(--accent); font-size: 13px; font-weight: 600; }
 
+/* ---------------- Окно подтверждения ---------------- */
+
+/* Своё вместо системного confirm: у того кнопки на языке прошивки
+   и оформление, не имеющее отношения к приложению. */
+.dialog-wrap {
+  position: fixed; inset: 0; z-index: 80;
+  display: grid; place-items: center; padding: 28px;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(2px);
+  opacity: 0; pointer-events: none;
+  transition: opacity .2s var(--ease);
+}
+.dialog-wrap.on { opacity: 1; pointer-events: auto; }
+
+.dialog {
+  width: 100%; max-width: 340px;
+  background: var(--surface); border: 1px solid var(--line2);
+  border-radius: 20px; padding: 22px 20px 14px;
+  box-shadow: 0 20px 50px rgba(0,0,0,.45);
+  transform: scale(.94);
+  transition: transform .22s var(--ease);
+}
+.dialog-wrap.on .dialog { transform: scale(1); }
+
+.dialog-title { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.015em; }
+.dialog-text { margin: 8px 0 0; font-size: 14px; line-height: 1.45; color: var(--dim); }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 4px; margin-top: 18px; }
+.dialog-btn {
+  padding: 11px 16px; border-radius: 12px;
+  font-size: 14.5px; font-weight: 600; color: var(--dim);
+  transition: background .15s;
+}
+.dialog-btn:active { background: var(--surface2); }
+.dialog-btn.primary { color: var(--accent); }
+.dialog-btn.danger { color: var(--danger); }
+
 /* ---------------- Тост ---------------- */
 
 .toast {

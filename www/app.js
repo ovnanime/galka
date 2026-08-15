@@ -1139,6 +1139,39 @@ function renderProjectDetails(projectId) {
     : '<div class="project-empty">В этом разделе пока нет задач</div>';
 }
 
+/* ---------- своё окно подтверждения вместо системного ---------- */
+
+let dialogResolve = null;
+
+function askConfirm({ title, text = '', ok = 'Продолжить', danger = false }) {
+  return new Promise(resolve => {
+    if (dialogResolve) dialogResolve(false);   // предыдущее считаем отменённым
+    dialogResolve = resolve;
+    $('#dialogTitle').textContent = title;
+    $('#dialogText').textContent = text;
+    $('#dialogText').style.display = text ? '' : 'none';
+    const okBtn = $('#dialogOk');
+    okBtn.textContent = ok;
+    okBtn.classList.toggle('danger', danger);
+    okBtn.classList.toggle('primary', !danger);
+    $('#dialogWrap').classList.add('on');
+  });
+}
+
+function closeDialog(value) {
+  const resolve = dialogResolve;
+  dialogResolve = null;
+  $('#dialogWrap').classList.remove('on');
+  if (resolve) resolve(value);
+}
+
+async function askExit() {
+  const ok = await askConfirm({ title: 'Выйти из приложения?', ok: 'Выйти', danger: true });
+  if (!ok) return;
+  const native = window.Capacitor?.Plugins?.AppSettings;
+  if (native?.exitApp) await native.exitApp();
+}
+
 function showSheet(sel) {
   $('#backdrop').classList.add('on');
   $(sel).classList.add('on');
@@ -1241,7 +1274,18 @@ function goBackView() {
   return false;
 }
 
-window.dayplanHandleBack = () => closeTopSheet() || goBackView();
+/**
+ * Кнопку «Назад» разбирает веб-часть. Возвращать нужно строго синхронно:
+ * Java читает результат сразу, поэтому подтверждение выхода показывается
+ * без ожидания, а true отдаётся немедленно — обработку мы взяли на себя.
+ */
+window.dayplanHandleBack = () => {
+  if (dialogResolve) { closeDialog(false); return true; }
+  if (closeTopSheet()) return true;
+  if (goBackView()) return true;
+  askExit();
+  return true;
+};
 
 /* ============================================================
    События
@@ -1387,6 +1431,12 @@ function handleSettingsChange(e) {
 function bind() {
 
   $$('.tab').forEach(t => t.addEventListener('click', () => switchView(t.dataset.view)));
+
+  $('#dialogCancel').addEventListener('click', () => closeDialog(false));
+  $('#dialogOk').addEventListener('click', () => closeDialog(true));
+  $('#dialogWrap').addEventListener('click', e => {
+    if (e.target === $('#dialogWrap')) closeDialog(false);
+  });
 
   // Настройки постоянно перерисовываются. Обработчики стоят на стабильном
   // контейнере, поэтому кнопки разделов и системных пунктов не «отваливаются».
@@ -1565,8 +1615,14 @@ function bind() {
     if (mode) {
       if (!pendingImport) { closeSheets(); return; }
       const how = mode.dataset.importMode;
-      if (how === 'replace' &&
-          !window.confirm('Заменить все текущие задачи и разделы данными из файла?')) return;
+      if (how === 'replace') {
+        const ok = await askConfirm({
+          title: 'Заменить всё?',
+          text: 'Текущие задачи и разделы будут удалены, вместо них загрузятся данные из файла.',
+          ok: 'Заменить', danger: true
+        });
+        if (!ok) return;
+      }
       Store.applyBundle(pendingImport, how);
       pendingImport = null;
       closeSheets();
@@ -1743,9 +1799,14 @@ function bind() {
     toast('Раздел сохранён');
   });
 
-  $('#projDelete').addEventListener('click', () => {
+  $('#projDelete').addEventListener('click', async () => {
     if (!draftProj.id) return;
-    if (!window.confirm('Удалить раздел? Задачи останутся и перейдут в «Без раздела».')) return;
+    const ok = await askConfirm({
+      title: 'Удалить раздел?',
+      text: 'Задачи останутся и перейдут в «Без раздела».',
+      ok: 'Удалить', danger: true
+    });
+    if (!ok) return;
     Store.deleteProject(draftProj.id);
     if (draft && draft.projectId === draftProj.id) draft.projectId = null;
     $('#projSheet').classList.remove('on');

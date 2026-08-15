@@ -225,7 +225,7 @@ function pageMask(img) {
  * @param circle    обрезать по кругу (для round-иконки)
  */
 function render(img, page, cx, cy, halfSpan, size, mode, circle) {
-  const alpha = mode === 'cutout';
+  const alpha = mode === 'cutout' || mode === 'invert';
   const ch = alpha ? 4 : 3;
   const out = Buffer.alloc(size * size * ch);
   const half = size / 2;
@@ -256,7 +256,19 @@ function render(img, page, cx, cy, halfSpan, size, mode, circle) {
       const o = (y * size + x) * ch;
       const clipped = circle && Math.hypot(x + 0.5 - half, y + 0.5 - half) > clipR;
 
-      if (mode === 'dark') {
+      if (mode === 'invert') {
+        // Круг становится белым, рисунок внутри — чёрным. На тёмной подложке
+        // логотип читается целиком, а не только его белые линии.
+        const a = 1 - onPage / n;
+        out[o] = Math.round(255 - r); out[o + 1] = Math.round(255 - g); out[o + 2] = Math.round(255 - b);
+        out[o + 3] = clipped ? 0 : Math.round(255 * a);
+      } else if (mode === 'invert-dark') {
+        // то же самое, уже наложенное на чёрное — для мест без прозрачности
+        const a = 1 - onPage / n;
+        out[o] = Math.round((255 - r) * a);
+        out[o + 1] = Math.round((255 - g) * a);
+        out[o + 2] = Math.round((255 - b) * a);
+      } else if (mode === 'dark') {
         // то же самое, но уже наложенное на чёрное: подложка чёрная,
         // поэтому цвет просто умножается на непрозрачность
         const a = 1 - onPage / n;
@@ -315,7 +327,7 @@ const SAFE = 0.64;
 const fgSpan = c.radius / SAFE;
 for (const [dir, size] of [['mdpi', 108], ['hdpi', 162], ['xhdpi', 216], ['xxhdpi', 324], ['xxxhdpi', 432]]) {
   done.push(write(res(`mipmap-${dir}/ic_launcher_foreground.png`),
-    encodePNG(render(img, page, c.cx, c.cy, fgSpan, size, 'cutout', false), size, true)));
+    encodePNG(render(img, page, c.cx, c.cy, fgSpan, size, 'invert', false), size, true)));
 }
 
 // Квадратные иконки маска не режет, поэтому центруем по габаритам рисунка,
@@ -329,7 +341,7 @@ const boxHalf = Math.max(c.box.x1 - c.box.x0, c.box.y1 - c.box.y0) / 2;
 // обрезаем по кругу — иначе получится логотип в белом квадрате.
 const legacySpan = c.radius / 0.96;
 for (const [dir, size] of [['mdpi', 48], ['hdpi', 72], ['xhdpi', 96], ['xxhdpi', 144], ['xxxhdpi', 192]]) {
-  const round = encodePNG(render(img, page, c.cx, c.cy, legacySpan, size, 'cutout', true), size, true);
+  const round = encodePNG(render(img, page, c.cx, c.cy, legacySpan, size, 'invert', true), size, true);
   done.push(write(res(`mipmap-${dir}/ic_launcher.png`), round));
   done.push(write(res(`mipmap-${dir}/ic_launcher_round.png`), round));
 }
@@ -338,9 +350,9 @@ for (const [dir, size] of [['mdpi', 48], ['hdpi', 72], ['xhdpi', 96], ['xxhdpi',
 // логотип целиком на чёрном, без белой страницы вокруг
 const storeSpan = boxHalf / 0.94;
 done.push(write(path.join(__dirname, 'icon-512.png'),
-  encodePNG(render(img, page, bx, by, storeSpan, 512, 'dark', false), 512, false)));
+  encodePNG(render(img, page, bx, by, storeSpan, 512, 'invert-dark', false), 512, false)));
 done.push(write(path.join(ROOT, 'www/icon-192.png'),
-  encodePNG(render(img, page, bx, by, storeSpan, 192, 'dark', false), 192, false)));
+  encodePNG(render(img, page, bx, by, storeSpan, 192, 'invert-dark', false), 192, false)));
 
 // Исходный вид на белом — пригодится для документов и печати
 done.push(write(path.join(__dirname, 'icon-512-white.png'),

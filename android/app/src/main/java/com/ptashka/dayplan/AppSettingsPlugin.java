@@ -148,6 +148,14 @@ public class AppSettingsPlugin extends Plugin {
         startSettings(appDetailsIntent(getContext()), null, call);
     }
 
+    /** Закрыть приложение. Подтверждение выхода рисует веб-часть,
+     *  системный диалог остался только как запасной вариант. */
+    @PluginMethod
+    public void exitApp(PluginCall call) {
+        call.resolve();
+        getActivity().runOnUiThread(() -> getActivity().finish());
+    }
+
     @PluginMethod
     public void openUrl(PluginCall call) {
         String url = call.getString("url", "").trim();

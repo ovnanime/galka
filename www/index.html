@@ -12,7 +12,7 @@
 <meta name="tagline" content="Не забудь про галочку!">
 <meta name="app-principle" content="записал → не забыл → сделал → поставил галочку">
 <title>Галка: Планы и заметки</title>
-<link rel="stylesheet" href="styles.css?v=20260816-accent">
+<link rel="stylesheet" href="styles.css?v=20260816-dialog">
 </head>
 <body>
 
@@ -241,12 +241,24 @@
   <div class="sheet-body" id="pickerBody"></div>
 </div>
 
+<!-- ============ ОКНО ПОДТВЕРЖДЕНИЯ ============ -->
+<div class="dialog-wrap" id="dialogWrap">
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dialogTitle">
+    <b class="dialog-title" id="dialogTitle">—</b>
+    <p class="dialog-text" id="dialogText"></p>
+    <div class="dialog-actions">
+      <button class="dialog-btn" id="dialogCancel">Отмена</button>
+      <button class="dialog-btn primary" id="dialogOk">Продолжить</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
-<script src="store.js?v=20260816-accent"></script>
-<script src="notify.js?v=20260816-accent"></script>
-<script src="backup.js?v=20260816-accent"></script>
-<script src="picker.js?v=20260816-accent"></script>
-<script src="app.js?v=20260816-accent"></script>
+<script src="store.js?v=20260816-dialog"></script>
+<script src="notify.js?v=20260816-dialog"></script>
+<script src="backup.js?v=20260816-dialog"></script>
+<script src="picker.js?v=20260816-dialog"></script>
+<script src="app.js?v=20260816-dialog"></script>
 </body>
 </html>
