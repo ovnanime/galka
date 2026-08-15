@@ -35,6 +35,24 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Открытие файлов .galka. Своего типа MIME у расширения нет,
+                 поэтому отбор идёт по имени файла. Шаблонов несколько:
+                 pathPattern не умеет повторять точку, и для имён с точками
+                 нужен отдельный шаблон на каждый уровень. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.galka" />
+                <data android:pathPattern=".*\\..*\\.galka" />
+                <data android:pathPattern=".*\\..*\\..*\\.galka" />
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.galka" />
+            </intent-filter>
+
         </activity>
 
         <provider

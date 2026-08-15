@@ -1,6 +1,7 @@
 package com.ptashka.dayplan;
 
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.os.Bundle;
 import androidx.activity.OnBackPressedCallback;
 import com.getcapacitor.BridgeActivity;
@@ -19,6 +20,14 @@ public class MainActivity extends BridgeActivity {
                 handleDayplanBack();
             }
         });
+    }
+
+    /** Файл открыли, когда приложение уже работало — подменяем намерение,
+     *  иначе плагин прочитает то, с которым приложение запускалось. */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
     }
 
     private void handleDayplanBack() {

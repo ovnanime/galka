@@ -809,6 +809,16 @@ function showImportConfirm(counts) {
   </div>`);
 }
 
+/** Приложение открыли файлом .galka из проводника */
+async function checkOpenedFile() {
+  const text = await Backup.openedFile();
+  if (!text) return;
+  const parsed = Store.readBundle(text);
+  if (!parsed.ok) { toast(parsed.error); return; }
+  pendingImport = parsed.bundle;
+  showImportConfirm(parsed.counts);
+}
+
 function openWipeConfirm() {
   const counts = { tasks: Store.state.tasks.length, projects: Store.state.projects.length };
   showInfoSheet('Удаление всех данных', `<div class="info-state">
@@ -1785,8 +1795,11 @@ async function init() {
         await Notify.reschedule(Store.state);
         await refreshNotifState();
         if ($('.view.active')?.id === 'v-set') renderSettings();
+        await checkOpenedFile();
       }
     });
+
+    await checkOpenedFile();
   }
 
   await refreshNotifState();

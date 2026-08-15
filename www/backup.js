@@ -100,6 +100,17 @@ const Backup = (() => {
     });
   }
 
+  /** Файл, которым открыли приложение из проводника. null — открывали обычно. */
+  async function openedFile() {
+    if (!isNative() || !plugin().consumeOpenedFile) return null;
+    try {
+      const res = await plugin().consumeOpenedFile();
+      return res?.has ? String(res.content || '') : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /** Возвращает { content } | { cancelled: true } | { error } */
   async function pick() {
     if (isNative() && plugin().importFile) {
@@ -114,5 +125,5 @@ const Backup = (() => {
     return pickInBrowser();
   }
 
-  return { save, autoSave, pick, fileName, isNative };
+  return { save, autoSave, pick, openedFile, fileName, isNative };
 })();

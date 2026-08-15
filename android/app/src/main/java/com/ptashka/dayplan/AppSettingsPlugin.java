@@ -264,6 +264,50 @@ public class AppSettingsPlugin extends Plugin {
         }
     }
 
+    /**
+     * Содержимое файла, которым запустили приложение (открытие .galka
+     * из проводника). Отдаётся один раз: намерение сразу помечается
+     * использованным, иначе тот же файл предложится при каждом возврате.
+     */
+    @PluginMethod
+    public void consumeOpenedFile(PluginCall call) {
+        Intent intent = getActivity().getIntent();
+        JSObject result = new JSObject();
+
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction()) || intent.getData() == null) {
+            call.resolve(result.put("has", false));
+            return;
+        }
+
+        Uri uri = intent.getData();
+        intent.setAction(Intent.ACTION_MAIN);
+        intent.setData(null);
+
+        try (InputStream in = getContext().getContentResolver().openInputStream(uri);
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            if (in == null) {
+                call.resolve(result.put("has", false));
+                return;
+            }
+            byte[] buffer = new byte[8192];
+            long total = 0;
+            int read;
+            while ((read = in.read(buffer)) > 0) {
+                total += read;
+                if (total > MAX_IMPORT_BYTES) {
+                    call.reject("Файл слишком большой");
+                    return;
+                }
+                out.write(buffer, 0, read);
+            }
+            call.resolve(result
+                .put("has", true)
+                .put("content", new String(out.toByteArray(), StandardCharsets.UTF_8)));
+        } catch (Exception error) {
+            call.reject("Не удалось прочитать открытый файл", error);
+        }
+    }
+
     @PluginMethod
     public void importFile(PluginCall call) {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT)
