@@ -215,6 +215,64 @@ function pageMask(img) {
   return page;
 }
 
+/**
+ * Область календаря. По цвету он неотличим от птицы — обе фигуры чёрные
+ * с белой обводкой. Зато обводка делает календарь отдельной связной
+ * областью: заливка от точки внутри него упирается в белые линии и на
+ * птицу не переходит. Точки взяты из разбора (store/analyze-logo.js):
+ * первая в шапке, вторая в поле с клетками — их разделяет белая линия.
+ */
+const CALENDAR_SEEDS = [[420, 330], [340, 420]];
+
+function calendarMask(img) {
+  const { width, height, data } = img;
+  const isDark = i => {
+    const d = i * 3;
+    return data[d] * 0.299 + data[d + 1] * 0.587 + data[d + 2] * 0.114 < 128;
+  };
+
+  const zone = new Uint8Array(width * height);
+  for (const [sx, sy] of CALENDAR_SEEDS) {
+    const start = sy * width + sx;
+    if (!isDark(start) || zone[start]) continue;
+    const stack = [start];
+    zone[start] = 1;
+    let count = 0;
+    while (stack.length) {
+      const i = stack.pop();
+      count++;
+      const x = i % width, y = (i / width) | 0;
+      const push = j => { if (!zone[j] && isDark(j)) { zone[j] = 1; stack.push(j); } };
+      if (x > 0) push(i - 1);
+      if (x < width - 1) push(i + 1);
+      if (y > 0) push(i - width);
+      if (y < height - 1) push(i + width);
+    }
+    if (count > width * height * 0.25) {
+      throw new Error('заливка календаря разлилась по рисунку — проверьте CALENDAR_SEEDS');
+    }
+  }
+
+  // Клетки — светлые островки внутри залитого. Находим их от обратного:
+  // помечаем всё, до чего можно дойти от краёв, минуя залитое.
+  const outside = new Uint8Array(width * height);
+  const queue = [];
+  const open = j => { if (!outside[j] && !zone[j]) { outside[j] = 1; queue.push(j); } };
+  for (let x = 0; x < width; x++) { open(x); open((height - 1) * width + x); }
+  for (let y = 0; y < height; y++) { open(y * width); open(y * width + width - 1); }
+  while (queue.length) {
+    const i = queue.pop();
+    const x = i % width, y = (i / width) | 0;
+    if (x > 0) open(i - 1);
+    if (x < width - 1) open(i + 1);
+    if (y > 0) open(i - width);
+    if (y < height - 1) open(i + width);
+  }
+  for (let i = 0; i < zone.length; i++) if (!zone[i] && !outside[i]) zone[i] = 1;
+
+  return zone;
+}
+
 /* ---------------- отрисовка ---------------- */
 
 /**
@@ -224,7 +282,7 @@ function pageMask(img) {
  * @param alpha     прозрачный фон вместо белого
  * @param circle    обрезать по кругу (для round-иконки)
  */
-function render(img, page, cx, cy, halfSpan, size, mode, circle) {
+function render(img, page, cal, cx, cy, halfSpan, size, mode, circle) {
   const alpha = mode === 'cutout' || mode === 'invert';
   const ch = alpha ? 4 : 3;
   const out = Buffer.alloc(size * size * ch);
@@ -244,7 +302,12 @@ function render(img, page, cx, cy, halfSpan, size, mode, circle) {
       for (let yy = c0; yy <= c1; yy++) {
         for (let xx = r0; xx <= r1; xx++) {
           const i = yy * img.width + xx, d = i * 3;
-          r += img.data[d]; g += img.data[d + 1]; b += img.data[d + 2];
+          // Внутри календаря цвета переворачиваем: корпус становится белым,
+          // клетки — чёрными. Остальной логотип остаётся как есть.
+          const flip = cal && cal[i];
+          r += flip ? 255 - img.data[d]     : img.data[d];
+          g += flip ? 255 - img.data[d + 1] : img.data[d + 1];
+          b += flip ? 255 - img.data[d + 2] : img.data[d + 2];
           onPage += page[i];
           n++;
         }
@@ -296,6 +359,7 @@ function write(file, buf) {
 
 const img = decodePNG(fs.readFileSync(SRC));
 const page = pageMask(img);
+const cal = calendarMask(img);
 const c = inkCircle(img);
 console.log(`источник: ${img.width}×${img.height}`);
 console.log(`рисунок: центр (${c.cx.toFixed(0)}, ${c.cy.toFixed(0)}), радиус ${c.radius.toFixed(0)} px`);
@@ -315,7 +379,9 @@ const top = Object.entries(dark).sort((a, b) => b[1] - a[1])[0];
 const [dr, dg, db] = top[0].split(',').map(Number);
 const hex = '#' + [dr, dg, db].map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
 console.log(`основной тёмный цвет логотипа: ${hex} (${top[1]} точек) — такой должна быть подложка`);
-console.log(`доля страницы: ${(page.reduce((s, v) => s + v, 0) / page.length * 100).toFixed(0)}%\n`);
+console.log(`доля страницы: ${(page.reduce((s, v) => s + v, 0) / page.length * 100).toFixed(0)}%`);
+const calCount = cal.reduce((s, v) => s + v, 0);
+console.log(`область календаря: ${calCount} точек (${(calCount / cal.length * 100).toFixed(1)}% картинки)\n`);
 
 const res = p => path.join(ROOT, 'android/app/src/main/res', p);
 const done = [];
@@ -327,7 +393,7 @@ const SAFE = 0.64;
 const fgSpan = c.radius / SAFE;
 for (const [dir, size] of [['mdpi', 108], ['hdpi', 162], ['xhdpi', 216], ['xxhdpi', 324], ['xxxhdpi', 432]]) {
   done.push(write(res(`mipmap-${dir}/ic_launcher_foreground.png`),
-    encodePNG(render(img, page, c.cx, c.cy, fgSpan, size, 'invert', false), size, true)));
+    encodePNG(render(img, page, cal, c.cx, c.cy, fgSpan, size, 'cutout', false), size, true)));
 }
 
 // Квадратные иконки маска не режет, поэтому центруем по габаритам рисунка,
@@ -341,7 +407,7 @@ const boxHalf = Math.max(c.box.x1 - c.box.x0, c.box.y1 - c.box.y0) / 2;
 // обрезаем по кругу — иначе получится логотип в белом квадрате.
 const legacySpan = c.radius / 0.96;
 for (const [dir, size] of [['mdpi', 48], ['hdpi', 72], ['xhdpi', 96], ['xxhdpi', 144], ['xxxhdpi', 192]]) {
-  const round = encodePNG(render(img, page, c.cx, c.cy, legacySpan, size, 'invert', true), size, true);
+  const round = encodePNG(render(img, page, cal, c.cx, c.cy, legacySpan, size, 'cutout', true), size, true);
   done.push(write(res(`mipmap-${dir}/ic_launcher.png`), round));
   done.push(write(res(`mipmap-${dir}/ic_launcher_round.png`), round));
 }
@@ -350,12 +416,12 @@ for (const [dir, size] of [['mdpi', 48], ['hdpi', 72], ['xhdpi', 96], ['xxhdpi',
 // логотип целиком на чёрном, без белой страницы вокруг
 const storeSpan = boxHalf / 0.94;
 done.push(write(path.join(__dirname, 'icon-512.png'),
-  encodePNG(render(img, page, bx, by, storeSpan, 512, 'invert-dark', false), 512, false)));
+  encodePNG(render(img, page, cal, bx, by, storeSpan, 512, 'dark', false), 512, false)));
 done.push(write(path.join(ROOT, 'www/icon-192.png'),
-  encodePNG(render(img, page, bx, by, storeSpan, 192, 'invert-dark', false), 192, false)));
+  encodePNG(render(img, page, cal, bx, by, storeSpan, 192, 'dark', false), 192, false)));
 
 // Исходный вид на белом — пригодится для документов и печати
 done.push(write(path.join(__dirname, 'icon-512-white.png'),
-  encodePNG(render(img, page, bx, by, storeSpan, 512, 'opaque', false), 512, false)));
+  encodePNG(render(img, page, cal, bx, by, storeSpan, 512, 'opaque', false), 512, false)));
 
 console.log(done.join('\n'));
