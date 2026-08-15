@@ -511,7 +511,7 @@ let notifEnabled = null;
 let remindersChannel = { enabled: null, importance: null, sound: null, vibration: null };
 let digestChannel = { enabled: null, importance: null, sound: null, vibration: null };
 let batteryExempt = null;
-let appVersion = { name: '1.0.1', code: 2 };
+let appVersion = { name: '1.0.0', code: 1 };
 let pendingImport = null;      // разобранный файл, ждущий подтверждения
 
 const reminderLabel = value => REMINDERS.find(r => r.v === value)?.l ?? 'Нет';

@@ -307,7 +307,7 @@ const Notify = (() => {
       remindersChannelSound: null, remindersChannelVibration: null,
       digestChannelEnabled: null, digestChannelImportance: null,
       digestChannelSound: null, digestChannelVibration: null,
-      versionName: '1.0.1', versionCode: 2
+      versionName: '1.0.0', versionCode: 1
     };
     const permission = await checkPermission();
     const exact = await checkExact();
