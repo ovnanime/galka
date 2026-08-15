@@ -188,6 +188,33 @@ function inkCircle(img) {
   return { cx, cy, radius: best, box: { x0, y0, x1, y1 } };
 }
 
+/**
+ * Отмечает «страницу» — белый фон вокруг логотипа. Заливка идёт от краёв
+ * картинки, поэтому белые клетки календаря внутри логотипа не задеваются:
+ * они замкнуты и до границы не достают.
+ */
+function pageMask(img) {
+  const { width, height, data } = img;
+  const page = new Uint8Array(width * height);
+  const queue = [];
+
+  const light = i => data[i * 3] > 200 && data[i * 3 + 1] > 200 && data[i * 3 + 2] > 200;
+  const push = i => { if (!page[i] && light(i)) { page[i] = 1; queue.push(i); } };
+
+  for (let x = 0; x < width; x++) { push(x); push((height - 1) * width + x); }
+  for (let y = 0; y < height; y++) { push(y * width); push(y * width + width - 1); }
+
+  while (queue.length) {
+    const i = queue.pop();
+    const x = i % width, y = (i / width) | 0;
+    if (x > 0) push(i - 1);
+    if (x < width - 1) push(i + 1);
+    if (y > 0) push(i - width);
+    if (y < height - 1) push(i + width);
+  }
+  return page;
+}
+
 /* ---------------- отрисовка ---------------- */
 
 /**
@@ -197,42 +224,50 @@ function inkCircle(img) {
  * @param alpha     прозрачный фон вместо белого
  * @param circle    обрезать по кругу (для round-иконки)
  */
-function render(img, cx, cy, halfSpan, size, alpha, circle) {
+function render(img, page, cx, cy, halfSpan, size, mode, circle) {
+  const alpha = mode === 'cutout';
   const ch = alpha ? 4 : 3;
   const out = Buffer.alloc(size * size * ch);
   const half = size / 2;
   const inv = halfSpan / half;                        // пикселей источника на пиксель результата
-  const circle0 = { cx, cy };
   const clipR = size / 2;
 
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
-      const sx = circle0.cx + (x + 0.5 - half) * inv;
-      const sy = circle0.cy + (y + 0.5 - half) * inv;
+      const sx = cx + (x + 0.5 - half) * inv;
+      const sy = cy + (y + 0.5 - half) * inv;
 
       // усреднение по площади: при уменьшении берём весь попавший квадрат
-      let r = 0, g = 0, b = 0, n = 0;
+      let r = 0, g = 0, b = 0, n = 0, onPage = 0;
       const r0 = Math.max(0, Math.floor(sx - inv / 2)), r1 = Math.min(img.width - 1, Math.ceil(sx + inv / 2));
       const c0 = Math.max(0, Math.floor(sy - inv / 2)), c1 = Math.min(img.height - 1, Math.ceil(sy + inv / 2));
       for (let yy = c0; yy <= c1; yy++) {
         for (let xx = r0; xx <= r1; xx++) {
-          const d = (yy * img.width + xx) * 3;
-          r += img.data[d]; g += img.data[d + 1]; b += img.data[d + 2]; n++;
+          const i = yy * img.width + xx, d = i * 3;
+          r += img.data[d]; g += img.data[d + 1]; b += img.data[d + 2];
+          onPage += page[i];
+          n++;
         }
       }
-      if (!n) { r = g = b = 255; n = 1; }
+      const outsideSource = n === 0;
+      if (outsideSource) { r = g = b = 255; n = 1; onPage = 1; }
       r /= n; g /= n; b /= n;
 
       const o = (y * size + x) * ch;
-      const outside = circle && Math.hypot(x + 0.5 - half, y + 0.5 - half) > clipR;
+      const clipped = circle && Math.hypot(x + 0.5 - half, y + 0.5 - half) > clipR;
 
-      if (alpha) {
-        // рисунок чёрный по белому: непрозрачность равна его темноте
-        const lum = (r * 0.299 + g * 0.587 + b * 0.114);
-        const a = outside ? 0 : Math.round(255 - lum);
-        out[o] = 0; out[o + 1] = 0; out[o + 2] = 0; out[o + 3] = a;
-      } else {
+      if (mode === 'dark') {
+        // то же самое, но уже наложенное на чёрное: подложка чёрная,
+        // поэтому цвет просто умножается на непрозрачность
+        const a = 1 - onPage / n;
+        out[o] = Math.round(r * a); out[o + 1] = Math.round(g * a); out[o + 2] = Math.round(b * a);
+      } else if (mode === 'opaque') {
         out[o] = Math.round(r); out[o + 1] = Math.round(g); out[o + 2] = Math.round(b);
+      } else {
+        // Прозрачна только страница вокруг логотипа. Всё остальное —
+        // и чёрное, и замкнутые белые клетки — рисуется как есть.
+        const a = clipped ? 0 : Math.round(255 * (1 - onPage / n));
+        out[o] = Math.round(r); out[o + 1] = Math.round(g); out[o + 2] = Math.round(b); out[o + 3] = a;
       }
     }
   }
@@ -248,10 +283,27 @@ function write(file, buf) {
 /* ---------------- сборка ---------------- */
 
 const img = decodePNG(fs.readFileSync(SRC));
+const page = pageMask(img);
 const c = inkCircle(img);
 console.log(`источник: ${img.width}×${img.height}`);
 console.log(`рисунок: центр (${c.cx.toFixed(0)}, ${c.cy.toFixed(0)}), радиус ${c.radius.toFixed(0)} px`);
-console.log(`поля источника обрезаны: рамка ${c.box.x0}..${c.box.x1} по горизонтали\n`);
+console.log(`поля источника обрезаны: рамка ${c.box.x0}..${c.box.x1} по горизонтали`);
+
+// Чёрный логотипа должен совпасть с цветом подложки, иначе круг проступит кольцом
+const dark = {};
+for (let i = 0; i < img.width * img.height; i++) {
+  if (page[i]) continue;
+  const d = i * 3;
+  if (img.data[d] < 60) {
+    const key = `${img.data[d]},${img.data[d + 1]},${img.data[d + 2]}`;
+    dark[key] = (dark[key] || 0) + 1;
+  }
+}
+const top = Object.entries(dark).sort((a, b) => b[1] - a[1])[0];
+const [dr, dg, db] = top[0].split(',').map(Number);
+const hex = '#' + [dr, dg, db].map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+console.log(`основной тёмный цвет логотипа: ${hex} (${top[1]} точек) — такой должна быть подложка`);
+console.log(`доля страницы: ${(page.reduce((s, v) => s + v, 0) / page.length * 100).toFixed(0)}%\n`);
 
 const res = p => path.join(ROOT, 'android/app/src/main/res', p);
 const done = [];
@@ -263,7 +315,7 @@ const SAFE = 0.64;
 const fgSpan = c.radius / SAFE;
 for (const [dir, size] of [['mdpi', 108], ['hdpi', 162], ['xhdpi', 216], ['xxhdpi', 324], ['xxxhdpi', 432]]) {
   done.push(write(res(`mipmap-${dir}/ic_launcher_foreground.png`),
-    encodePNG(render(img, c.cx, c.cy, fgSpan, size, true, false), size, true)));
+    encodePNG(render(img, page, c.cx, c.cy, fgSpan, size, 'cutout', false), size, true)));
 }
 
 // Квадратные иконки маска не режет, поэтому центруем по габаритам рисунка,
@@ -273,19 +325,25 @@ const by = (c.box.y0 + c.box.y1) / 2;
 const boxHalf = Math.max(c.box.x1 - c.box.x0, c.box.y1 - c.box.y0) / 2;
 
 // Запасные растровые иконки для Android до 8
-const legacySpan = boxHalf / 0.92;
+// Запасные растровые иконки для Android до 8: маски нет, поэтому сами
+// обрезаем по кругу — иначе получится логотип в белом квадрате.
+const legacySpan = c.radius / 0.96;
 for (const [dir, size] of [['mdpi', 48], ['hdpi', 72], ['xhdpi', 96], ['xxhdpi', 144], ['xxxhdpi', 192]]) {
-  done.push(write(res(`mipmap-${dir}/ic_launcher.png`),
-    encodePNG(render(img, bx, by, legacySpan, size, false, false), size, false)));
-  done.push(write(res(`mipmap-${dir}/ic_launcher_round.png`),
-    encodePNG(render(img, bx, by, c.radius / 0.98, size, true, true), size, true)));
+  const round = encodePNG(render(img, page, c.cx, c.cy, legacySpan, size, 'cutout', true), size, true);
+  done.push(write(res(`mipmap-${dir}/ic_launcher.png`), round));
+  done.push(write(res(`mipmap-${dir}/ic_launcher_round.png`), round));
 }
 
-// Для карточки магазина и для вкладки браузера
+// Карточка магазина и вкладка браузера: тот же вид, что на телефоне —
+// логотип целиком на чёрном, без белой страницы вокруг
 const storeSpan = boxHalf / 0.94;
 done.push(write(path.join(__dirname, 'icon-512.png'),
-  encodePNG(render(img, bx, by, storeSpan, 512, false, false), 512, false)));
+  encodePNG(render(img, page, bx, by, storeSpan, 512, 'dark', false), 512, false)));
 done.push(write(path.join(ROOT, 'www/icon-192.png'),
-  encodePNG(render(img, bx, by, storeSpan, 192, true, false), 192, true)));
+  encodePNG(render(img, page, bx, by, storeSpan, 192, 'dark', false), 192, false)));
+
+// Исходный вид на белом — пригодится для документов и печати
+done.push(write(path.join(__dirname, 'icon-512-white.png'),
+  encodePNG(render(img, page, bx, by, storeSpan, 512, 'opaque', false), 512, false)));
 
 console.log(done.join('\n'));
