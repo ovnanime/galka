@@ -13,6 +13,20 @@ const PALETTE = [
 
 const NO_PROJ_COLOR = '#6B7488';
 
+// Цвет оформления. Для каждой темы своё значение: белый акцент на светлой
+// теме был бы не виден, поэтому там он превращается в почти чёрный.
+const ACCENTS = [
+  { key: 'white',  name: 'Белый',      dark: '#FFFFFF', light: '#151A24' },
+  { key: 'blue',   name: 'Голубой',    dark: '#6E8BFF', light: '#3F5BF6' },
+  { key: 'teal',   name: 'Бирюзовый',  dark: '#2DD4BF', light: '#0D9488' },
+  { key: 'green',  name: 'Зелёный',    dark: '#34D399', light: '#0F9D6B' },
+  { key: 'amber',  name: 'Оранжевый',  dark: '#F5A524', light: '#B45309' },
+  { key: 'red',    name: 'Красный',    dark: '#FB7185', light: '#E11D48' },
+  { key: 'purple', name: 'Фиолетовый', dark: '#A78BFA', light: '#7C3AED' }
+];
+
+const accentByKey = key => ACCENTS.find(a => a.key === key) || ACCENTS[0];
+
 // Формат файла обмена расписаниями
 const BACKUP_FORMAT = 'galka';
 const BACKUP_VERSION = 1;
@@ -80,6 +94,7 @@ const Store = (() => {
     tasks: [],
     settings: {
       theme: 'dark',
+      accent: 'white',
       defaultReminder: 15,
       morning: { on: true, time: '08:00' },
       untimed: { on: true, time: '10:00' },
@@ -185,6 +200,15 @@ const Store = (() => {
   function deleteGroup(groupId) {
     state.tasks = state.tasks.filter(t => t.groupId !== groupId);
     emit();
+  }
+
+  /** Удаляет все задачи и разделы. Настройки не трогает. */
+  function wipeAll() {
+    const removed = { tasks: state.tasks.length, projects: state.projects.length };
+    state.tasks = [];
+    state.projects = [];
+    emit();
+    return removed;
   }
 
   function toggleTask(id) {
@@ -423,7 +447,7 @@ const Store = (() => {
     load, emit,
     get state() { return state; },
     onChange: fn => listeners.push(fn),
-    saveGroup, deleteGroup, toggleTask, groupById, groups,
+    saveGroup, deleteGroup, wipeAll, toggleTask, groupById, groups,
     saveProject, deleteProject,
     byId, projById, colorOf, forDate, overdue, updateSettings,
     exportBundle, readBundle, applyBundle

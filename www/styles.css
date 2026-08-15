@@ -481,6 +481,26 @@ svg { width: 22px; height: 22px; fill: none; stroke: currentColor;
 .info-action { margin-top: 20px; padding: 11px 17px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 650; }
 .info-action:active { transform: scale(.98); }
 .info-action + .info-action { margin-top: 10px; }
+.info-action:disabled { opacity: .45; }
+
+/* Выбор цвета оформления */
+.accent-row { display: grid; grid-template-columns: repeat(7, 1fr); gap: 9px; margin-top: 10px; }
+.accent-dot {
+  aspect-ratio: 1; border-radius: 50%;
+  background: var(--c); border: 2px solid var(--line);
+  transition: transform .14s var(--ease), border-color .15s;
+}
+.accent-dot.on { border-color: var(--text); transform: scale(1.14); }
+
+/* Подтверждение удаления всех данных */
+.wipe-input {
+  width: 100%; margin-top: 18px; padding: 12px 14px;
+  background: var(--surface2); border: 1px solid var(--line2);
+  border-radius: var(--r-sm); font-size: 15px; text-align: center;
+}
+.wipe-input:focus { outline: none; border-color: var(--danger); }
+.danger-label { color: var(--danger); }
+.danger-icon { color: var(--danger); }
 /* Замена данных необратима — кнопка не должна выглядеть как основная */
 .info-action.danger {
   background: color-mix(in srgb, var(--danger) 14%, transparent);

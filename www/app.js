@@ -103,6 +103,7 @@ const ICON = {
   battery: '<svg viewBox="0 0 24 24"><rect x="3" y="6" width="17" height="12" rx="2"/><path d="M20 10h2v4h-2M11 8.5L8.5 13H12l-1 3.5 4.5-6H12z"/></svg>',
   collapse: '<svg viewBox="0 0 24 24"><path d="M7 13l5-5 5 5M6 19h12"/></svg>',
   expand: '<svg viewBox="0 0 24 24"><path d="M7 11l5 5 5-5M6 5h12"/></svg>',
+  trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.8h5V7M6.5 7l1 12.2h9l1-12.2M10 11v5M14 11v5"/></svg>',
   download: '<svg viewBox="0 0 24 24"><path d="M12 3v12M7.5 10.5L12 15l4.5-4.5M4 20h16"/></svg>',
   upload: '<svg viewBox="0 0 24 24"><path d="M12 15V3M7.5 7.5L12 3l4.5 4.5M4 20h16"/></svg>',
   sliders: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M10 14v6"/></svg>'
@@ -112,11 +113,28 @@ const ICON = {
    Тема
    ============================================================ */
 
-function applyTheme() {
+function currentTheme() {
   const t = Store.state.settings.theme;
   const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const real = t === 'system' ? (sysDark ? 'dark' : 'light') : t;
-  document.documentElement.setAttribute('data-theme', real);
+  return t === 'system' ? (sysDark ? 'dark' : 'light') : t;
+}
+
+const hexAlpha = (hex, a) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+};
+
+function applyTheme() {
+  const real = currentTheme();
+  const root = document.documentElement;
+  root.setAttribute('data-theme', real);
+
+  // Цвет акцента задаётся поверх темы: --accent-ink остаётся из темы,
+  // поэтому подпись на цветной кнопке читается при любом выборе.
+  const accent = accentByKey(Store.state.settings.accent);
+  const color = real === 'dark' ? accent.dark : accent.light;
+  root.style.setProperty('--accent', color);
+  root.style.setProperty('--accent-sfc', hexAlpha(color, real === 'dark' ? 0.18 : 0.12));
 }
 
 /* ============================================================
@@ -493,7 +511,7 @@ let notifEnabled = null;
 let remindersChannel = { enabled: null, importance: null, sound: null, vibration: null };
 let digestChannel = { enabled: null, importance: null, sound: null, vibration: null };
 let batteryExempt = null;
-let appVersion = { name: '1.0.0', code: 1 };
+let appVersion = { name: '1.0.1', code: 2 };
 let pendingImport = null;      // разобранный файл, ждущий подтверждения
 
 const reminderLabel = value => REMINDERS.find(r => r.v === value)?.l ?? 'Нет';
@@ -524,6 +542,7 @@ function notificationChannelLabel(channel) {
 function renderSettings() {
   const st = Store.state;
   const t = st.settings.theme;
+  const real = currentTheme();
 
   const permLabel = permState === 'granted' ? 'Разрешены'
     : permState === 'denied' ? 'Запрещены в Android' : 'Нужно разрешение';
@@ -542,6 +561,11 @@ function renderSettings() {
       <div class="seg">
         ${[['dark', 'Тёмная'], ['light', 'Светлая'], ['system', 'Системная']]
           .map(([v, l]) => `<button class="${t === v ? 'on' : ''}" data-set-theme="${v}">${l}</button>`).join('')}
+      </div>
+      <div class="accent-row">
+        ${ACCENTS.map(a => `<button class="accent-dot ${st.settings.accent === a.key ? 'on' : ''}"
+          style="--c:${real === 'dark' ? a.dark : a.light}"
+          data-accent="${a.key}" aria-label="${a.name}"></button>`).join('')}
       </div>
     </div>
 
@@ -634,6 +658,11 @@ function renderSettings() {
         <button type="button" class="row tap setting-action" data-import>
           <span class="setting-icon">${ICON.upload}</span>
           <div class="lbl"><b>Импорт</b><small>Загрузить из файла</small></div>
+          <span class="setting-chevron">${ICON.chev}</span>
+        </button>
+        <button type="button" class="row tap setting-action" data-wipe>
+          <span class="setting-icon danger-icon">${ICON.trash}</span>
+          <div class="lbl"><b class="danger-label">Удалить все данные</b><small>Сначала сохранит копию</small></div>
           <span class="setting-chevron">${ICON.chev}</span>
         </button>
       </div>
@@ -778,6 +807,20 @@ function showImportConfirm(counts) {
     <button class="info-action" data-import-mode="merge">Добавить к текущим</button>
     <button class="info-action danger" data-import-mode="replace">Заменить всё</button>
   </div>`);
+}
+
+function openWipeConfirm() {
+  const counts = { tasks: Store.state.tasks.length, projects: Store.state.projects.length };
+  showInfoSheet('Удаление всех данных', `<div class="info-state">
+    ${ICON.trash}
+    <b>${counts.tasks} ${plural(counts.tasks, 'запись', 'записи', 'записей')} и
+    ${counts.projects} ${plural(counts.projects, 'раздел', 'раздела', 'разделов')}</b>
+    <p>Копия сохранится в файл до удаления. Впишите слово <b>Подтверждаю</b>.</p>
+    <input class="wipe-input" id="wipeWord" placeholder="Подтверждаю"
+           autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button class="info-action danger" id="wipeGo" disabled>Удалить всё</button>
+  </div>`);
+  setTimeout(() => $('#wipeWord')?.focus(), 340);
 }
 
 async function checkForUpdates() {
@@ -1200,6 +1243,11 @@ async function handleSettingsClick(e) {
   const th = e.target.closest('[data-set-theme]');
   if (th) { Store.updateSettings({ theme: th.dataset.setTheme }); applyTheme(); renderSettings(); return; }
 
+  const ac = e.target.closest('[data-accent]');
+  if (ac) { Store.updateSettings({ accent: ac.dataset.accent }); applyTheme(); renderSettings(); return; }
+
+  if (e.target.closest('[data-wipe]')) { openWipeConfirm(); return; }
+
   const ep = e.target.closest('[data-editproj]');
   if (ep) {
     const project = Store.projById(Number(ep.dataset.editproj));
@@ -1482,7 +1530,27 @@ function bind() {
   $('#projCancel').addEventListener('click', closeTopSheet);
   $('#infoClose')?.addEventListener('click', closeTopSheet);
 
+  // Кнопка удаления оживает только на точное слово
+  $('#infoBody')?.addEventListener('input', e => {
+    if (e.target.id !== 'wipeWord') return;
+    const ok = e.target.value.trim().toLowerCase() === 'подтверждаю';
+    $('#wipeGo').disabled = !ok;
+  });
+
   $('#infoBody')?.addEventListener('click', async e => {
+    const wipe = e.target.closest('#wipeGo');
+    if (wipe) {
+      if (wipe.disabled) return;
+      wipe.disabled = true;
+      const copy = await Backup.autoSave({ versionName: appVersion.name, versionCode: appVersion.code });
+      if (!copy.ok) { toast(copy.message); wipe.disabled = false; return; }
+      Store.wipeAll();
+      closeSheets();
+      renderSettings();
+      toast(copy.location ? `Удалено. Копия в «${copy.location}»` : 'Удалено, копия сохранена');
+      return;
+    }
+
     const mode = e.target.closest('[data-import-mode]');
     if (mode) {
       if (!pendingImport) { closeSheets(); return; }

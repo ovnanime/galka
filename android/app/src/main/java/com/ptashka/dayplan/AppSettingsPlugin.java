@@ -7,6 +7,8 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.ClipData;
+import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -15,7 +17,9 @@ import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
 import android.os.PowerManager;
+import android.provider.MediaStore;
 import android.provider.Settings;
 import androidx.activity.result.ActivityResult;
 import androidx.core.app.NotificationCompat;
@@ -32,6 +36,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 
@@ -199,6 +204,63 @@ public class AppSettingsPlugin extends Plugin {
             call.resolve(new JSObject().put("saved", true).put("filename", filename));
         } catch (Exception error) {
             call.reject("Не удалось подготовить файл", error);
+        }
+    }
+
+    /**
+     * Копия перед удалением всех данных. Пишется без участия пользователя,
+     * поэтому идёт в «Загрузки»: этот каталог переживает удаление приложения,
+     * в отличие от его собственной папки.
+     */
+    @PluginMethod
+    public void saveBackup(PluginCall call) {
+        String filename = call.getString("filename", "galka-backup.galka");
+        String content = call.getString("content", "");
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentResolver resolver = getContext().getContentResolver();
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Downloads.DISPLAY_NAME, filename);
+                values.put(MediaStore.Downloads.MIME_TYPE, "application/json");
+                values.put(MediaStore.Downloads.IS_PENDING, 1);
+
+                Uri uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) {
+                    call.reject("Не удалось создать файл в «Загрузках»");
+                    return;
+                }
+                try (OutputStream out = resolver.openOutputStream(uri)) {
+                    if (out == null) {
+                        call.reject("Не удалось открыть файл для записи");
+                        return;
+                    }
+                    out.write(bytes);
+                }
+                values.clear();
+                values.put(MediaStore.Downloads.IS_PENDING, 0);
+                resolver.update(uri, values, null, null);
+
+                call.resolve(new JSObject().put("saved", true).put("location", "Загрузки"));
+                return;
+            }
+
+            // До Android 10 запись в общие «Загрузки» требует разрешения,
+            // поэтому кладём в собственный каталог приложения на карте памяти
+            File dir = getContext().getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            if (dir == null) dir = getContext().getFilesDir();
+            if (!dir.exists() && !dir.mkdirs()) {
+                call.reject("Не удалось создать каталог для копии");
+                return;
+            }
+            File file = new File(dir, filename);
+            try (FileOutputStream out = new FileOutputStream(file)) {
+                out.write(bytes);
+            }
+            call.resolve(new JSObject().put("saved", true).put("location", file.getAbsolutePath()));
+        } catch (Exception error) {
+            call.reject("Не удалось сохранить копию", error);
         }
     }
 

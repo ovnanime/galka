@@ -54,6 +54,31 @@ const Backup = (() => {
     }
   }
 
+  /**
+   * Копия перед удалением всех данных. В отличие от экспорта пишется сразу
+   * в известное место, без окна «куда сохранить»: пользователь в этот момент
+   * занят подтверждением удаления, а копия нужна гарантированно.
+   */
+  async function autoSave(appMeta) {
+    const bundle = Store.exportBundle(appMeta);
+    if (!bundle.counts.tasks && !bundle.counts.projects) return { ok: true, location: '' };
+
+    const content = JSON.stringify(bundle, null, 2);
+    const name = fileName();
+
+    if (isNative() && plugin().saveBackup) {
+      try {
+        const res = await plugin().saveBackup({ filename: name, content });
+        return { ok: true, location: res?.location || '' };
+      } catch (e) {
+        return { ok: false, message: `Копия не сохранена: ${errorText(e)}` };
+      }
+    }
+
+    const saved = await save(appMeta);
+    return saved.ok ? { ok: true, location: '' } : saved;
+  }
+
   /* ---------- выбор файла ---------- */
 
   function pickInBrowser() {
@@ -89,5 +114,5 @@ const Backup = (() => {
     return pickInBrowser();
   }
 
-  return { save, pick, fileName, isNative };
+  return { save, autoSave, pick, fileName, isNative };
 })();
