@@ -10,10 +10,10 @@ if (hasReleaseKey) {
 }
 
 android {
-    namespace "com.ptashka.dayplan"
+    namespace "ru.ovnanime.galka"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.ptashka.dayplan"
+        applicationId "ru.ovnanime.galka"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // versionName видит пользователь, versionCode — только Android.
@@ -49,11 +49,10 @@ android {
     }
 }
 
-repositories {
-    flatDir{
-        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
-    }
-}
+// Раньше здесь стоял flatDir на каталоги с .aar от плагинов Cordova.
+// Их в проекте нет, оба каталога пустые, а Gradle на flatDir ругается:
+// такой репозиторий не несёт метаданных о зависимостях. Понадобится
+// плагин Cordova, приезжающий готовым .aar, — блок придётся вернуть.
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')

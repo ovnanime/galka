@@ -1,4 +1,4 @@
-package com.ptashka.dayplan;
+package ru.ovnanime.galka;
 
 import android.Manifest;
 import android.app.Activity;

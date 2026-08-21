@@ -38,7 +38,7 @@ const APP_META = {
  *            запрещают приложениям обновлять себя в обход магазина,
  *            обновления там раздаёт сам магазин.
  */
-const DISTRIBUTION = 'github';
+const DISTRIBUTION = 'store';
 
 const APP_LINKS = {
   support: 'https://pay.cloudtips.ru/p/d90ce98a',
@@ -53,12 +53,13 @@ let cursor    = new Date();        // показываемый месяц
 let selected  = DT.today();        // выбранный день
 let collapsed = false;             // календарь свёрнут до одной недели
 const showDone = true;
-let listMode  = 'sections';
+let listMode  = 'sections';   // подхватывается из настроек при запуске
+const expandedGroups = new Set();   // какие задачи развёрнуты по дням
 let sectionFilter = null;           // null = выбраны все разделы
 let draft     = null;              // редактируемая задача
 let draftProj = null;              // редактируемый раздел
 let viewHistory = ['v-cal'];
-const expandedGroups = new Set();  // карточки на странице задач изначально свёрнуты
+let settingsStandalone = true;     // настройки открыли сами, а не из редактора текста
 let dayMode = 'once';
 // Границы диапазона держим в состоянии: системных полей ввода больше нет
 let dayRange = { start: DT.today(), end: DT.today() };
@@ -97,6 +98,7 @@ const ICON = {
   check: '<svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 6"/></svg>',
   edit:  '<svg viewBox="0 0 24 24"><path d="M4 20h4l11-11a2.8 2.8 0 00-4-4L4 16v4zM13.5 6.5l4 4"/></svg>',
   chev:  '<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>',
+  gear:  '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.1"/><path d="M18.7 14.6a1.6 1.6 0 00.3 1.8 1.9 1.9 0 11-2.6 2.6 1.6 1.6 0 00-1.8-.3 1.6 1.6 0 00-1 1.5 1.9 1.9 0 11-3.8 0 1.6 1.6 0 00-1-1.5 1.6 1.6 0 00-1.8.3 1.9 1.9 0 11-2.6-2.6 1.6 1.6 0 00.3-1.8 1.6 1.6 0 00-1.5-1 1.9 1.9 0 110-3.8 1.6 1.6 0 001.5-1 1.6 1.6 0 00-.3-1.8 1.9 1.9 0 112.6-2.6 1.6 1.6 0 001.8.3h.1a1.6 1.6 0 001-1.5 1.9 1.9 0 113.8 0 1.6 1.6 0 001 1.5 1.6 1.6 0 001.8-.3 1.9 1.9 0 112.6 2.6 1.6 1.6 0 00-.3 1.8v.1a1.6 1.6 0 001.5 1 1.9 1.9 0 110 3.8 1.6 1.6 0 00-1.5 1z"/></svg>',
   info:  '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.2h.01"/></svg>',
   heart: '<svg viewBox="0 0 24 24"><path d="M20.8 4.7a5.5 5.5 0 00-7.8 0L12 5.8l-1.1-1.1a5.5 5.5 0 00-7.8 7.8L12 21l8.8-8.5a5.5 5.5 0 000-7.8z"/></svg>',
   refresh: '<svg viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.2 9A7 7 0 006.8 6.8L4 11M5.8 15A7 7 0 0017.2 17.2L20 13"/></svg>',
@@ -267,29 +269,54 @@ function jumpTo(year, month) {
 
 /* ---------- карточка задачи в ленте дня ---------- */
 
-function taskCard(t) {
-  const c = Store.colorOf(t);
-  const proj = Store.projById(t.projectId);
-  const late = !t.done && t.time && DT.at(t.date, t.time).getTime() < Date.now();
+/**
+ * Заметка в карточке.
+ *
+ * Строки-пункты становятся галочками, по которым можно ткнуть прямо из
+ * списка, не открывая редактор. Остальные строки остаются обычным текстом:
+ * заметка не обязана быть списком целиком.
+ */
+function noteBlock(groupId, note) {
+  const lines = Store.noteLines(note);
+  if (!lines.length) return '';
 
-  const bell = (t.time && t.reminder != null)
-    ? `<span class="t-bell">${ICON.bell}${
-        REMINDERS.find(r => r.v === t.reminder)?.l.replace('За ', '') || ''}</span>`
-    : '';
-
-  return `<div class="task ${t.done ? 'done' : ''}" style="--c:${c}" data-task="${t.id}">
-    <button class="check" data-check="${t.id}" aria-label="Отметить">${ICON.check}</button>
-    <div class="t-main">
-      <div class="t-title">${esc(t.title)}</div>
-      ${t.note ? `<div class="t-note">${esc(t.note)}</div>` : ''}
-      ${(proj || bell) ? `<div class="t-meta">
-        ${proj ? `<span class="t-proj" style="--c:${c}">${esc(proj.name)}</span>` : ''}
-        ${bell}
-      </div>` : ''}
-    </div>
-    <div class="t-time ${t.time ? (late ? 'late' : '') : 'none'}">${t.time || '—'}</div>
-  </div>`;
+  // Строка выводится своим тегом: заголовок остаётся заголовком, цитата
+  // цитатой, список списком. Пункт с галочкой — единственное, что рисуется
+  // по-своему: ему нужен квадратик и обработчик нажатия.
+  let idx = -1;
+  return `<div class="t-list">${lines.map(l => {
+    const html = linksInMarkup(l.html);
+    if (l.item) {
+      idx++;
+      return `<div class="t-item ${l.done ? 'done' : ''} ${l.cls}" data-noteitem="${groupId}:${idx}"
+        role="checkbox" tabindex="0" aria-checked="${l.done}">
+        <span class="t-item-box">${ICON.check}</span><span class="t-item-text">${html}</span>
+      </div>`;
+    }
+    if (l.tag === 'HR') return '<hr>';
+    if (!html.trim() || html === '<br>') return '';
+    const tag = l.tag === 'DIV' ? 'div' : l.tag.toLowerCase();
+    const cls = l.tag === 'DIV' ? `t-list-text ${l.cls}` : l.cls;
+    return `<${tag}${cls.trim() ? ` class="${cls.trim()}"` : ''}>${html}</${tag}>`;
+  }).join('')}</div>`;
 }
+
+
+/** Заменяет ссылки в разметке строки на их вид для карточки */
+function linksInMarkup(html) {
+  if (typeof document === 'undefined' || html.indexOf('<a') < 0) return html;
+  const box = document.createElement('div');
+  box.innerHTML = html;
+  Array.from(box.querySelectorAll('a')).forEach(a => {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = linkMarkup(a);
+    a.replaceWith(tmp.firstElementChild || document.createTextNode(a.textContent));
+  });
+  return box.innerHTML;
+}
+
+
+
 
 const emptyBlock = (title, sub) => `<div class="empty">
   <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4M9 15h6"/></svg>
@@ -388,54 +415,108 @@ function occurrenceRow(t) {
   </div>`;
 }
 
+/**
+ * Карточка задачи в списке.
+ *
+ * Раскрывать её не нужно: даты подписаны строкой, а внутри задачи ничего,
+ * кроме текста, нет. Справа две кнопки — шестерёнка ведёт в настройки
+ * задачи, карандаш открывает текст.
+ */
 function groupCard(g) {
   const c = Store.projById(g.projectId)?.color || NO_PROJ_COLOR;
   const allDone = g.done === g.total;
-  const expanded = expandedGroups.has(g.groupId);
   const visibleTasks = showDone ? g.tasks : g.tasks.filter(t => !t.done);
   if (!visibleTasks.length) return '';
+  const expanded = expandedGroups.has(g.groupId);
+  const many = g.total > 1;
   const bell = (g.time && g.reminder != null)
     ? `<span class="t-bell">${ICON.bell}${REMINDERS.find(r => r.v === g.reminder)?.l.replace('За ', '') || ''}</span>`
     : '';
+
+  // Счётчика справа нет намеренно: он спорил со списком внутри задачи,
+  // у которого свой счёт, и читался как головоломка.
+
   return `<article class="task-group ${allDone ? 'done' : ''} ${expanded ? 'expanded' : ''}" style="--c:${c}">
     <div class="task-group-head">
-      <button class="task-group-toggle" data-toggle-group="${g.groupId}"
-        aria-expanded="${expanded}" aria-label="${expanded ? 'Свернуть даты задачи' : 'Развернуть даты задачи'}">
+      ${many ? `<button class="group-chevron-btn" data-toggle-group="${g.groupId}"
+        aria-expanded="${expanded}" aria-label="${expanded ? 'Свернуть дни' : 'Показать дни'}">
         <span class="group-chevron" aria-hidden="true">${ICON.chev}</span>
+      </button>` : ''}
+      <button class="task-group-toggle" data-opennote="${g.groupId}">
         <span class="t-main">
           <span class="t-title">${esc(g.title)}</span>
-          ${g.note ? `<span class="t-note">${esc(g.note)}</span>` : ''}
           <span class="t-meta">
           <span class="t-bell">${ICON.cal}${g.total} ${plural(g.total, 'день', 'дня', 'дней')}</span>
           ${bell}
           </span>
         </span>
-        <span class="t-prog ${allDone ? 'full' : ''}">${g.done} / ${g.total}</span>
       </button>
-      <button class="task-edit" data-editgroup="${g.groupId}" aria-label="Изменить задачу">${ICON.edit}</button>
+      <button class="task-edit" data-editgroup="${g.groupId}" aria-label="Настройки задачи">${ICON.gear}</button>
+      <button class="task-edit" data-editnote="${g.groupId}" aria-label="Изменить текст">${ICON.edit}</button>
     </div>
-    <div class="occurrences-wrap" aria-hidden="${!expanded}">
+    ${noteBlock(g.groupId, g.note)}
+    ${many ? `<div class="occurrences-wrap" aria-hidden="${!expanded}">
       <div class="occurrences">${visibleTasks.map(occurrenceRow).join('')}</div>
-    </div>
+    </div>` : ''}
   </article>`;
+}
+
+
+/**
+ * Правая часть карточки: настройки и правка текста.
+ *
+ * Одинаковая во всех списках, чтобы рука привыкала к одному месту.
+ * Карандаш открывает заметку сразу в правке, а нажатие по середине
+ * карточки — на просмотр: смотрят чаще, чем правят.
+ */
+const cardTools = groupId => `
+  <button class="task-edit" data-editgroup="${groupId}" aria-label="Настройки задачи">${ICON.gear}</button>
+  <button class="task-edit" data-editnote="${groupId}" aria-label="Изменить текст">${ICON.edit}</button>`;
+
+function taskCard(t) {
+  const c = Store.colorOf(t);
+  const proj = Store.projById(t.projectId);
+  const late = !t.done && t.time && DT.at(t.date, t.time).getTime() < Date.now();
+
+  const bell = (t.time && t.reminder != null)
+    ? `<span class="t-bell">${ICON.bell}${
+        REMINDERS.find(r => r.v === t.reminder)?.l.replace('За ', '') || ''}</span>`
+    : '';
+
+  return `<div class="task ${t.done ? 'done' : ''}" style="--c:${c}">
+    <button class="check" data-check="${t.id}" aria-label="Отметить">${ICON.check}</button>
+    <button class="t-body" data-opennote="${t.groupId}">
+      <span class="t-main">
+        <span class="t-title">${esc(t.title)}</span>
+        ${(proj || bell) ? `<span class="t-meta">
+          ${proj ? `<span class="t-proj" style="--c:${c}">${esc(proj.name)}</span>` : ''}
+          ${bell}
+        </span>` : ''}
+      </span>
+      <span class="t-time ${t.time ? (late ? 'late' : '') : 'none'}">${t.time || '—'}</span>
+    </button>
+    ${cardTools(t.groupId)}
+    ${noteBlock(t.groupId, t.note)}
+  </div>`;
 }
 
 function orderedTaskCard(t) {
   const c = Store.colorOf(t);
   const proj = Store.projById(t.projectId);
   const late = !t.done && t.time && DT.at(t.date, t.time).getTime() < Date.now();
-  return `<div class="task ordered-task ${t.done ? 'done' : ''}" style="--c:${c}"
-    data-list-task="${t.id}" role="checkbox" tabindex="0" aria-checked="${t.done}">
-    <span class="check">${ICON.check}</span>
-    <div class="t-main">
-      <div class="t-title">${esc(t.title)}</div>
-      ${t.note ? `<div class="t-note">${esc(t.note)}</div>` : ''}
-      ${proj ? `<div class="t-meta"><span class="t-proj" style="--c:${c}">${esc(proj.name)}</span></div>` : ''}
-    </div>
-    <div class="t-time ${t.time ? (late ? 'late' : '') : 'none'}">${t.time || '—'}</div>
-    <button class="task-edit" data-editgroup="${t.groupId}" aria-label="Изменить задачу">${ICON.edit}</button>
+  return `<div class="task ordered-task ${t.done ? 'done' : ''}" style="--c:${c}">
+    <button class="check" data-check="${t.id}" aria-label="Отметить">${ICON.check}</button>
+    <button class="t-body" data-opennote="${t.groupId}">
+      <span class="t-main">
+        <span class="t-title">${esc(t.title)}</span>
+        ${proj ? `<span class="t-meta"><span class="t-proj" style="--c:${c}">${esc(proj.name)}</span></span>` : ''}
+      </span>
+      <span class="t-time ${t.time ? (late ? 'late' : '') : 'none'}">${t.time || '—'}</span>
+    </button>
+    ${cardTools(t.groupId)}
   </div>`;
 }
+
 
 function renderListBySections() {
   const all = Store.groups().filter(g =>
@@ -528,6 +609,12 @@ function notifRow(key, title, sub) {
   </div>`;
 }
 
+/** Подписи для пунктов «При запуске» */
+const startViewLabel = () =>
+  Store.state.settings.startView === 'v-list' ? 'Задачи' : 'Календарь';
+const startListLabel = () =>
+  Store.state.settings.startListMode === 'date' ? 'По порядку' : 'По разделам';
+
 function notificationChannelLabel(channel) {
   if (channel.enabled === false) return 'Канал отключён в Android';
   if (channel.importance == null) return 'Звук, вибрация и показ сверху';
@@ -566,6 +653,22 @@ function renderSettings() {
         ${ACCENTS.map(a => `<button class="accent-dot ${st.settings.accent === a.key ? 'on' : ''}"
           style="--c:${real === 'dark' ? a.dark : a.light}"
           data-accent="${a.key}" aria-label="${a.name}"></button>`).join('')}
+      </div>
+    </div>
+
+    <div class="sect">
+      <h2>При запуске</h2>
+      <div class="card">
+        <div class="row">
+          <div class="lbl"><b>Открывать</b><small>Страница при запуске</small></div>
+          <button type="button" class="value-btn" data-startview>${startViewLabel()}</button>
+          <span class="sw-placeholder" aria-hidden="true"></span>
+        </div>
+        <div class="row">
+          <div class="lbl"><b>Задачи показывать</b><small>Вид списка задач</small></div>
+          <button type="button" class="value-btn" data-startlist>${startListLabel()}</button>
+          <span class="sw-placeholder" aria-hidden="true"></span>
+        </div>
       </div>
     </div>
 
@@ -1068,7 +1171,8 @@ function renderRemChips() {
       ${disabled ? 'style="opacity:.4"' : ''}>${r.l}</button>`).join('');
 }
 
-function openTaskSheet(group) {
+/** Готовит черновик задачи. Обе шторки правят его, каждая — свою часть. */
+function startDraft(group) {
   if (group) {
     draft = {
       groupId: group.groupId, title: group.title, note: group.note,
@@ -1076,8 +1180,6 @@ function openTaskSheet(group) {
     };
     picked = new Set(group.dates);
     pickMonth = DT.parse(group.dates[0]);
-    $('#taskSheetTitle').textContent = group.total > 1 ? 'Задача на несколько дней' : 'Задача';
-    $('#taskDelete').classList.remove('hidden');
   } else {
     draft = {
       groupId: null, title: '', note: '', projectId: null,
@@ -1085,20 +1187,184 @@ function openTaskSheet(group) {
     };
     picked = new Set([selected]);
     pickMonth = DT.parse(selected);
-    $('#taskSheetTitle').textContent = 'Новая задача';
-    $('#taskDelete').classList.add('hidden');
   }
+}
 
-  $('#fTitle').value = draft.title;
-  $('#fNote').value = draft.note || '';
+/**
+ * Текст задачи: заголовок и поле ввода, как в заметках на телефоне.
+ * Даты, время и раздел сюда не лезут — они за шестерёнкой.
+ */
+/**
+ * Заметка открывается на просмотр, а не на правку.
+ *
+ * Раньше по нажатию на задачу сразу вылезала клавиатура и заслоняла половину
+ * экрана, хотя чаще всего нужно просто посмотреть список и отметить сделанное.
+ * Теперь правка включается отдельно: карандашом в шапке или двойным касанием
+ * по тексту. Галочки при этом работают и на просмотре — ради них и заходят.
+ */
+let noteEditing = false;
+
+function setNoteMode(editing) {
+  noteEditing = editing;
+  const area = $('#nText');
+  area.setAttribute('contenteditable', editing ? 'true' : 'false');
+  area.classList.toggle('reading', !editing);
+  $('#nTitle').readOnly = !editing;
+  $('#noteTools').hidden = !editing;
+  $('#noteEdit').hidden = editing;
+  $('#noteSave').hidden = !editing;
+  if (editing) {
+    normalizeLines();
+    setTimeout(() => area.focus(), 60);
+  } else {
+    document.activeElement?.blur();
+  }
+}
+
+function openNoteEditor(group, edit) {
+  startDraft(group);
+  $('#nTitle').value = draft.title;
+  $('#nText').innerHTML = Store.noteSanitize(Store.noteToHtml(draft.note));
+  // Просим встроенный браузер делать на Enter именно строки-блоки:
+  // без этого он местами вставляет переносы, и строк как таковых нет.
+  try { document.execCommand('defaultParagraphSeparator', false, 'div'); } catch (e) {}
+  normalizeLines();
+  updateNoteMeta();
+  // Новая задача сразу в правке: смотреть в ней пока нечего
+  setNoteMode(edit !== undefined ? edit : !group);
+  showSheet('#noteSheet');
+  if (!group) setTimeout(() => $('#nTitle').focus(), 340);
+}
+
+/**
+ * Отметка пункта на просмотре сохраняется сразу.
+ * Кнопки «готово» в этом режиме нет, а уходить с несохранённой галочкой —
+ * ровно та потеря, из-за которой к спискам перестают доверять.
+ */
+function saveNoteQuietly() {
+  if (!draft || !draft.groupId) return;
+  Store.saveGroup({
+    groupId: draft.groupId,
+    title: ($('#nTitle').value || draft.title || '').trim() || draft.title,
+    note: noteValue(),
+    projectId: draft.projectId,
+    dates: Array.from(picked),
+    time: draft.time,
+    reminder: draft.time ? draft.reminder : null
+  });
+}
+
+
+
+/** Строка под заголовком: когда создано и сколько набрано */
+const noteArea = () => $('#nText');
+
+// Теги, которые сами по себе являются строкой. Раньше строкой считался
+// только div, и приведение к строкам заворачивало цитату, заголовок или
+// список внутрь него — отсюда и множились вложенные цитаты.
+const BLOCK_TAGS = { DIV: 1, H1: 1, H2: 1, H3: 1, BLOCKQUOTE: 1, UL: 1, OL: 1, HR: 1 };
+
+/**
+ * Приводит содержимое к строкам-блокам.
+ *
+ * Встроенный браузер держит первую строку голым текстом прямо в поле,
+ * без обёртки. Пока её нет, «строки под курсором» не существует, и кнопка
+ * пункта на первой строке молча ничего не делала.
+ */
+function normalizeLines() {
+  const area = noteArea();
+  let stray = [];
+  const flush = () => {
+    if (!stray.length) return;
+    const line = document.createElement('div');
+    stray[0].before(line);
+    stray.forEach(n => line.appendChild(n));
+    stray = [];
+  };
+  Array.from(area.childNodes).forEach(node => {
+    if (node.nodeType === 1 && BLOCK_TAGS[node.tagName]) { flush(); return; }
+    if (node.nodeType === 1 && node.tagName === 'BR' && !stray.length) {
+      const line = document.createElement('div');
+      node.before(line);
+      line.appendChild(node);
+      return;
+    }
+    stray.push(node);
+  });
+  flush();
+  if (!area.firstChild) area.appendChild(document.createElement('div')).appendChild(document.createElement('br'));
+}
+
+
+/**
+ * Разметка из поля ввода, приведённая в порядок.
+ *
+ * Встроенный браузер по ходу набора вставляет своё: пустые строки, обёртки
+ * от вставки из буфера, иногда стили. Очистка оставляет только начертания
+ * и пункты списка, поэтому в хранилище попадает ровно то, что мы умеем
+ * показать в карточке. Пустая заметка становится пустой строкой, а не
+ * набором пустых тегов.
+ */
+function noteValue() {
+  const html = Store.noteSanitize($('#nText').innerHTML);
+  return Store.notePlain(html).trim() ? html : '';
+}
+
+function updateNoteMeta() {
+  const when = new Intl.DateTimeFormat('ru-RU', {
+    day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit'
+  }).format(new Date());
+  const n = Store.notePlain($('#nText').innerHTML).length;
+  $('#nMeta').textContent = `${when} · ${n} ${plural(n, 'символ', 'символа', 'символов')}`;
+}
+
+/**
+ * Настройки задачи: раздел, дни, время, напоминание.
+ *
+ * Открываются двумя путями. Шестерёнкой с карточки — тогда «Готово»
+ * сохраняет задачу целиком. Шестерёнкой из редактора текста — тогда
+ * «Готово» только закрывает настройки, а сохранит уже галочка в тексте.
+ */
+function openTaskSettings(group, standalone = true) {
+  if (group !== undefined) startDraft(group);
+  settingsStandalone = standalone;
+
+  $('#taskSheetTitle').textContent = draft.groupId ? 'Настройки задачи' : 'Новая задача';
+  $('#taskDelete').classList.toggle('hidden', !draft.groupId);
   $('#fNoTime').checked = !draft.time;
   updateTimeButton();
-
   renderProjChips();
   renderRemChips();
   prepareDayEditor(Array.from(picked));
   showSheet('#taskSheet');
-  if (!group) setTimeout(() => $('#fTitle').focus(), 340);
+}
+
+/** Сохраняет черновик целиком. Возвращает false, если сохранять нечего. */
+function saveDraft() {
+  const title = ($('#nTitle').value || draft.title || '').trim();
+  if (!title) {
+    toast('Нужен заголовок');
+    return false;
+  }
+  const daySelection = collectDayDates();
+  if (daySelection.error) { toast(daySelection.error); return false; }
+
+  const dates = daySelection.dates;
+  picked = new Set(dates);
+  Store.saveGroup({
+    groupId: draft.groupId,
+    title,
+    note: noteValue(),
+    projectId: draft.projectId,
+    dates,
+    time: draft.time,
+    reminder: draft.time ? draft.reminder : null
+  });
+
+  selected = dates.includes(selected) ? selected : dates[0];
+  const d = DT.parse(selected);
+  cursor = new Date(d.getFullYear(), d.getMonth(), 1);
+  return true;
 }
 
 function openProjSheet(proj) {
@@ -1143,6 +1409,135 @@ function renderProjectDetails(projectId) {
 
 let dialogResolve = null;
 
+/**
+ * Окно ссылки: адрес и способ показа.
+ *
+ * Превью с заголовком и картинкой сделать нельзя — за ним пришлось бы идти
+ * на сайт, а приложение в сеть не ходит. Поэтому «карточкой» означает
+ * домен и адрес: это видно сразу и не требует загрузки.
+ */
+function askLink({ url = '', text = '', card = false } = {}) {
+  return new Promise(resolve => {
+    if (dialogResolve) dialogResolve(null);
+    dialogResolve = resolve;
+
+    $('#dialogTitle').textContent = url ? 'Ссылка' : 'Вставить ссылку';
+    $('#dialogText').style.display = 'none';
+
+    const extra = $('#dialogExtra');
+    extra.hidden = false;
+    extra.innerHTML = `
+      <input class="dialog-input" id="linkUrl" placeholder="адрес" inputmode="url"
+        autocomplete="off" autocapitalize="off" spellcheck="false" value="${esc(url)}">
+      <input class="dialog-input" id="linkText" placeholder="подпись, необязательно"
+        autocomplete="off" value="${esc(text)}">
+      <label class="dialog-switch">
+        <span>Показывать карточкой</span>
+        <input type="checkbox" class="sw" id="linkCard" ${card ? 'checked' : ''}>
+        <i class="sw-track"></i>
+      </label>`;
+
+    const okBtn = $('#dialogOk');
+    okBtn.textContent = url ? 'Сохранить' : 'Вставить';
+    okBtn.classList.add('primary');
+    okBtn.classList.remove('danger');
+    $('#dialogWrap').classList.add('on');
+    setTimeout(() => $('#linkUrl')?.focus(), 120);
+  });
+}
+
+/** Собирает ответ окна ссылки. null — окно закрыли без сохранения. */
+function readLinkDialog() {
+  const raw = $('#linkUrl')?.value || '';
+  const href = Store.noteSafeUrl(raw);
+  if (!href) return null;
+  return {
+    url: href,
+    text: ($('#linkText')?.value || '').trim(),
+    card: !!$('#linkCard')?.checked
+  };
+}
+
+/** Ссылка под курсором, если она там есть */
+function linkAtCaret() {
+  const sel = window.getSelection();
+  const node = sel && sel.anchorNode;
+  const host = node && (node.nodeType === 1 ? node : node.parentElement);
+  const a = host && host.closest ? host.closest('a') : null;
+  return a && a.closest('#nText') ? a : null;
+}
+
+/**
+ * Вставка и правка ссылки в заметке.
+ *
+ * Курсор внутри ссылки — правим её. Есть выделение — оно становится
+ * подписью. Ничего нет — вставляем новую, подписью будет адрес.
+ */
+async function insertLink() {
+  normalizeLines();
+  const existing = linkAtCaret();
+  const sel = window.getSelection();
+  const selected = sel && !sel.isCollapsed ? sel.toString().trim() : '';
+
+  // Окно уводит фокус в своё поле, и выделение в заметке пропадает.
+  // Запоминаем его заранее, иначе вставка уходит не туда, а выделенный
+  // текст остаётся на месте и задваивается.
+  const saved = sel && sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+
+  const answer = await askLink(existing
+    ? { url: existing.getAttribute('href'), text: existing.textContent, card: existing.classList.contains('card') }
+    : { url: Store.noteSafeUrl(selected) ? selected : '', text: Store.noteSafeUrl(selected) ? '' : selected });
+
+  if (!answer) return;
+
+  if (existing) {
+    existing.setAttribute('href', answer.url);
+    existing.textContent = answer.text || answer.url;
+    existing.classList.toggle('card', answer.card);
+    updateNoteMeta();
+    return;
+  }
+
+  const a = document.createElement('a');
+  a.setAttribute('href', answer.url);
+  a.textContent = answer.text || answer.url;
+  if (answer.card) a.className = 'card';
+
+  noteArea().focus();
+  const range = saved || (sel && sel.rangeCount ? sel.getRangeAt(0) : null);
+  if (range) {
+    range.deleteContents();
+    range.insertNode(a);
+    const after = document.createRange();
+    after.setStartAfter(a);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+  } else {
+    (noteArea().lastElementChild || noteArea()).appendChild(a);
+  }
+  updateNoteMeta();
+}
+
+
+/**
+ * Показ ссылки в карточке задачи.
+ *
+ * Обычная — строкой в тексте. Карточкой — отдельным блоком с доменом
+ * и адресом: заголовка и картинки взять неоткуда, сеть мы не трогаем.
+ */
+function linkMarkup(a) {
+  const href = a.getAttribute('href');
+  const host = Store.noteUrlHost(href);
+  if (!a.classList.contains('card')) {
+    return `<a class="t-link" data-openlink="${esc(href)}">${esc(a.textContent)}</a>`;
+  }
+  return `<span class="t-linkcard" data-openlink="${esc(href)}">
+    <span class="t-linkcard-host">${esc(host)}</span>
+    <span class="t-linkcard-url">${esc(href)}</span>
+  </span>`;
+}
+
 function askConfirm({ title, text = '', ok = 'Продолжить', danger = false }) {
   return new Promise(resolve => {
     if (dialogResolve) dialogResolve(false);   // предыдущее считаем отменённым
@@ -1150,6 +1545,9 @@ function askConfirm({ title, text = '', ok = 'Продолжить', danger = fa
     $('#dialogTitle').textContent = title;
     $('#dialogText').textContent = text;
     $('#dialogText').style.display = text ? '' : 'none';
+    // Поля остаются от окна ссылки — в обычном подтверждении они лишние
+    $('#dialogExtra').hidden = true;
+    $('#dialogExtra').innerHTML = '';
     const okBtn = $('#dialogOk');
     okBtn.textContent = ok;
     okBtn.classList.toggle('danger', danger);
@@ -1160,8 +1558,11 @@ function askConfirm({ title, text = '', ok = 'Продолжить', danger = fa
 
 function closeDialog(value) {
   const resolve = dialogResolve;
+  const extra = $('#dialogExtra');
   dialogResolve = null;
   $('#dialogWrap').classList.remove('on');
+  extra.hidden = true;
+  extra.innerHTML = '';
   if (resolve) resolve(value);
 }
 
@@ -1183,6 +1584,7 @@ function closeSheets() {
   Picker.cancel();
   $('#pickerSheet').classList.remove('on');
   $('#taskSheet').classList.remove('on');
+  $('#noteSheet').classList.remove('on');
   $('#projSheet').classList.remove('on');
   $('#infoSheet').classList.remove('on');
   $('#jumpSheet').classList.remove('on');
@@ -1197,7 +1599,9 @@ function closeSheets() {
 function closePicker() {
   Picker.cancel();
   $('#pickerSheet').classList.remove('on');
-  const under = ['#taskSheet', '#projSheet', '#infoSheet', '#jumpSheet']
+  // Список должен перечислять все шторки, из которых можно вызвать выбор.
+  // Забудешь одну — окно выбора закроет её вместе с собой.
+  const under = ['#noteSheet', '#taskSheet', '#projSheet', '#infoSheet', '#jumpSheet']
     .some(sel => $(sel).classList.contains('on'));
   if (!under) closeSheets();
 }
@@ -1216,7 +1620,17 @@ function closeTopSheet() {
     document.activeElement?.blur();
     return true;
   }
-  if ($('#taskSheet').classList.contains('on')) { closeSheets(); return true; }
+  if ($('#taskSheet').classList.contains('on')) {
+    // Настройки, открытые поверх текста, закрываются в текст: он ещё не сохранён
+    if (!settingsStandalone && $('#noteSheet').classList.contains('on')) {
+      $('#taskSheet').classList.remove('on');
+      document.activeElement?.blur();
+      return true;
+    }
+    closeSheets();
+    return true;
+  }
+  if ($('#noteSheet').classList.contains('on')) { closeSheets(); return true; }
   return false;
 }
 
@@ -1224,7 +1638,7 @@ function openGroupEditor(groupId) {
   const group = Store.groupById(groupId);
   if (!group) return;
   if ($('#projSheet').classList.contains('on')) $('#projSheet').classList.remove('on');
-  openTaskSheet(group);
+  openTaskSettings(group);
 }
 
 /* ============================================================
@@ -1296,6 +1710,40 @@ async function handleSettingsClick(e) {
   // и closest() находил бы его для любого клика, съедая все остальные ветки.
   const th = e.target.closest('[data-set-theme]');
   if (th) { Store.updateSettings({ theme: th.dataset.setTheme }); applyTheme(); renderSettings(); return; }
+
+  const sv = e.target.closest('[data-startview]');
+  if (sv) {
+    const choice = await Picker.choice({
+      title: 'Открывать при запуске',
+      value: Store.state.settings.startView,
+      options: [
+        { value: 'v-cal', label: 'Календарь' },
+        { value: 'v-list', label: 'Задачи' }
+      ]
+    });
+    if (choice && choice.value) Store.updateSettings({ startView: choice.value });
+    renderSettings();
+    return;
+  }
+
+  const sl = e.target.closest('[data-startlist]');
+  if (sl) {
+    const choice = await Picker.choice({
+      title: 'Вид списка задач',
+      value: Store.state.settings.startListMode,
+      options: [
+        { value: 'sections', label: 'По разделам' },
+        { value: 'date', label: 'По порядку' }
+      ]
+    });
+    if (choice && choice.value) {
+      Store.updateSettings({ startListMode: choice.value });
+      listMode = choice.value;
+      renderList();
+    }
+    renderSettings();
+    return;
+  }
 
   const ac = e.target.closest('[data-accent]');
   if (ac) { Store.updateSettings({ accent: ac.dataset.accent }); applyTheme(); renderSettings(); return; }
@@ -1433,7 +1881,16 @@ function bind() {
   $$('.tab').forEach(t => t.addEventListener('click', () => switchView(t.dataset.view)));
 
   $('#dialogCancel').addEventListener('click', () => closeDialog(false));
-  $('#dialogOk').addEventListener('click', () => closeDialog(true));
+  $('#dialogOk').addEventListener('click', () => {
+    // Окно ссылки возвращает поля, обычное подтверждение — просто «да»
+    if ($('#linkUrl')) {
+      const answer = readLinkDialog();
+      if (!answer) { toast('Не похоже на адрес'); $('#linkUrl').focus(); return; }
+      closeDialog(answer);
+      return;
+    }
+    closeDialog(true);
+  });
   $('#dialogWrap').addEventListener('click', e => {
     if (e.target === $('#dialogWrap')) closeDialog(false);
   });
@@ -1525,17 +1982,58 @@ function bind() {
   /* --- тап по задачам --- */
   document.addEventListener('click', e => {
     if (Date.now() < suppressTapUntil) { e.preventDefault(); return; }
-    const editGroup = e.target.closest('[data-editgroup]');
-    if (editGroup) { e.stopPropagation(); openGroupEditor(Number(editGroup.dataset.editgroup)); return; }
     const toggleGroup = e.target.closest('[data-toggle-group]');
     if (toggleGroup) {
       e.stopPropagation();
-      const groupId = Number(toggleGroup.dataset.toggleGroup);
-      if (expandedGroups.has(groupId)) expandedGroups.delete(groupId);
-      else expandedGroups.add(groupId);
+      const id = Number(toggleGroup.dataset.toggleGroup);
+      if (expandedGroups.has(id)) expandedGroups.delete(id); else expandedGroups.add(id);
       renderList();
       return;
     }
+    // Ссылка в карточке. Открываем через системный обработчик, а не
+    // переходом: приложение не должно уезжать во встроенный браузер.
+    const link = e.target.closest('[data-openlink]');
+    if (link) {
+      e.stopPropagation();
+      e.preventDefault();
+      Notify.openUrl(link.dataset.openlink).then(ok => { if (!ok) toast('Не удалось открыть ссылку'); });
+      return;
+    }
+    // Скрытый текст раскрывается нажатием. Проверяем раньше галочки:
+    // скрытый кусок может лежать внутри пункта, и тогда нажатие по нему
+    // не должно заодно отмечать пункт сделанным.
+    const spoiler = e.target.closest('.sp');
+    if (spoiler && !spoiler.closest('#nText')) {
+      e.stopPropagation();
+      spoiler.classList.toggle('open');
+      return;
+    }
+    // Галочка у пункта заметки. Останавливаем всплытие: иначе следом
+    // сработает открытие карточки, и список тут же скроется редактором.
+    const noteItem = e.target.closest('[data-noteitem]');
+    if (noteItem) {
+      e.stopPropagation();
+      const [gid, idx] = noteItem.dataset.noteitem.split(':').map(Number);
+      Store.toggleNoteItem(gid, idx);
+      return;
+    }
+    const openNote = e.target.closest('[data-opennote]');
+    if (openNote) {
+      e.stopPropagation();
+      const g = Store.groupById(Number(openNote.dataset.opennote));
+      if (g) openNoteEditor(g, false);
+      return;
+    }
+    // Карандаш ведёт в ту же заметку, но сразу в правку
+    const editNote = e.target.closest('[data-editnote]');
+    if (editNote) {
+      e.stopPropagation();
+      const g = Store.groupById(Number(editNote.dataset.editnote));
+      if (g) openNoteEditor(g, true);
+      return;
+    }
+    const editGroup = e.target.closest('[data-editgroup]');
+    if (editGroup) { e.stopPropagation(); openGroupEditor(Number(editGroup.dataset.editgroup)); return; }
     const listTask = e.target.closest('[data-list-task]');
     if (listTask) { e.stopPropagation(); Store.toggleTask(Number(listTask.dataset.listTask)); return; }
     const check = e.target.closest('[data-check]');
@@ -1547,7 +2045,7 @@ function bind() {
     const card = e.target.closest('[data-task]');
     if (card) {
       const t = Store.byId(Number(card.dataset.task));
-      if (t) openTaskSheet(Store.groupById(t.groupId));
+      if (t) openNoteEditor(Store.groupById(t.groupId));
       return;
     }
   });
@@ -1555,16 +2053,14 @@ function bind() {
   document.addEventListener('keydown', e => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const editGroup = e.target.closest('[data-editgroup]');
-    const toggleGroup = e.target.closest('[data-toggle-group]');
     const listTask = e.target.closest('[data-list-task]');
-    if (!editGroup && !toggleGroup && !listTask) return;
+    const openNote = e.target.closest('[data-opennote]');
+    if (!editGroup && !openNote && !listTask) return;
     e.preventDefault();
     if (editGroup) openGroupEditor(Number(editGroup.dataset.editgroup));
-    else if (toggleGroup) {
-      const groupId = Number(toggleGroup.dataset.toggleGroup);
-      if (expandedGroups.has(groupId)) expandedGroups.delete(groupId);
-      else expandedGroups.add(groupId);
-      renderList();
+    else if (openNote) {
+      const g = Store.groupById(Number(openNote.dataset.opennote));
+      if (g) openNoteEditor(g);
     }
     else Store.toggleTask(Number(listTask.dataset.listTask));
   });
@@ -1573,6 +2069,8 @@ function bind() {
     const button = e.target.closest('[data-list-mode]');
     if (!button) return;
     listMode = button.dataset.listMode;
+    // Запоминаем выбор: при следующем запуске список откроется таким же
+    Store.updateSettings({ startListMode: listMode });
     renderList();
   });
 
@@ -1582,7 +2080,7 @@ function bind() {
     toggleSection(button.dataset.sectionFilter);
   });
 
-  $('#fab').addEventListener('click', () => openTaskSheet(null));
+  $('#fab').addEventListener('click', () => openNoteEditor(null));
 
   /* --- шторка задачи --- */
   $('#backdrop').addEventListener('click', closeTopSheet);
@@ -1739,31 +2237,402 @@ function bind() {
   $('#pickClear').addEventListener('click', () => { picked.clear(); renderPicker(); });
 
   /* --- сохранение задачи --- */
-  $('#taskSave').addEventListener('click', () => {
-    const title = $('#fTitle').value.trim();
-    if (!title) { toast('Нужно название'); $('#fTitle').focus(); return; }
-    const daySelection = collectDayDates();
-    if (daySelection.error) { toast(daySelection.error); return; }
+  /* --- редактор текста --- */
+  /* --- редактор заметки: оформление --- */
 
-    const dates = daySelection.dates;
-    picked = new Set(dates);
-    Store.saveGroup({
-      groupId: draft.groupId,
-      title,
-      note: $('#fNote').value.trim(),
-      projectId: draft.projectId,
-      dates,
-      time: draft.time,
-      reminder: draft.time ? draft.reminder : null
+  /**
+   * Выделение приходится помнить самим.
+   *
+   * Нажатие по кнопке панели уводит фокус из поля, и выделение пропадает.
+   * Перехватывать касание нельзя: вместе с ним отменяется и само нажатие —
+   * ровно из-за этого кнопка скрытого текста не срабатывала вовсе.
+   * Поэтому запоминаем последнее выделение внутри поля и возвращаем его
+   * перед каждым действием.
+   */
+  let savedRange = null;
+
+  document.addEventListener('selectionchange', () => {
+    if (!$('#noteSheet').classList.contains('on')) return;
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+    const host = range.commonAncestorContainer;
+    const el = host.nodeType === 1 ? host : host.parentElement;
+    if (el && el.closest && el.closest('#nText')) savedRange = range.cloneRange();
+    updateFmtState();
+  });
+
+  /** Возвращает выделение в поле и выполняет действие */
+  function withSelection(fn) {
+    const area = noteArea();
+    area.focus();
+    const sel = window.getSelection();
+    const inside = sel && sel.rangeCount &&
+      (sel.getRangeAt(0).commonAncestorContainer.nodeType === 1
+        ? sel.getRangeAt(0).commonAncestorContainer
+        : sel.getRangeAt(0).commonAncestorContainer.parentElement)?.closest?.('#nText');
+    if (!inside && savedRange) {
+      sel.removeAllRanges();
+      sel.addRange(savedRange);
+    }
+    normalizeLines();
+    fn();
+    updateFmtState();
+    updateNoteMeta();
+  }
+
+  /** Строка, в которой сейчас курсор */
+  function currentLine() {
+    const sel = window.getSelection();
+    if (!sel || !sel.anchorNode) return null;
+    let node = sel.anchorNode;
+    while (node && node !== noteArea()) {
+      if (node.parentNode === noteArea() && node.nodeType === 1) return node;
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  /** Все строки, которых касается выделение */
+  function selectedLines() {
+    const area = noteArea();
+    const sel = window.getSelection();
+    const rows = Array.from(area.children);
+    if (sel && sel.rangeCount) {
+      const range = sel.getRangeAt(0);
+      const touched = rows.filter(row => {
+        try { return range.intersectsNode(row); } catch (e) { return false; }
+      });
+      if (touched.length) return touched;
+    }
+    const line = currentLine();
+    if (line) return [line];
+    // Курсор потерялся. Берём строку из запомненного выделения, а не первую
+    // попавшуюся: из-за этого цитата применялась к самому верхнему пункту,
+    // хотя нажимали внизу.
+    if (savedRange) {
+      const host = savedRange.commonAncestorContainer;
+      const el = host.nodeType === 1 ? host : host.parentElement;
+      const row = el && el.closest ? rows.find(r => r === el || r.contains(el)) : null;
+      if (row) return [row];
+    }
+    return rows.length ? [rows[rows.length - 1]] : [];
+  }
+
+  /** Меняет тег строки, сохраняя её содержимое и разрешённые классы */
+  function setLineTag(line, tag) {
+    if (line.tagName === tag) return line;
+    const next = document.createElement(tag);
+    Array.from(line.classList).forEach(c => { if (c !== 'ci') next.classList.add(c); });
+    while (line.firstChild) next.appendChild(line.firstChild);
+    line.replaceWith(next);
+    return next;
+  }
+
+  /** Ставит курсор в конец строки — после правки он не должен пропадать */
+  function placeCaret(line) {
+    noteArea().focus();
+    const range = document.createRange();
+    range.selectNodeContents(line);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    savedRange = range.cloneRange();
+  }
+
+  /** Оборачивает выделение своим начертанием: скрытый текст или подсветка */
+  function wrapSelection(className) {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+
+    const node = sel.anchorNode;
+    const host = node && (node.nodeType === 1 ? node : node.parentElement);
+    const inside = host && host.closest ? host.closest('span.' + className) : null;
+
+    if (inside) {
+      const parent = inside.parentNode;
+      while (inside.firstChild) parent.insertBefore(inside.firstChild, inside);
+      inside.remove();
+      return;
+    }
+
+    const range = sel.getRangeAt(0);
+    const span = document.createElement('span');
+    span.className = className;
+    try {
+      if (range.collapsed) {
+        span.textContent = '​';
+        range.insertNode(span);
+      } else {
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
+      }
+      const after = document.createRange();
+      after.selectNodeContents(span);
+      after.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(after);
+      savedRange = after.cloneRange();
+    } catch (e) {
+      // выделение пересекло границы строк — сломанная разметка хуже,
+      // чем несработавшая кнопка
+    }
+  }
+
+  /* ---------- действия кнопок ---------- */
+
+  const ALIGN = ['al-c', 'al-r', 'al-j'];
+  const INDENT = ['in-1', 'in-2', 'in-3'];
+
+  async function pickHeading() {
+    const line = currentLine();
+    const value = line && /^H[123]$/.test(line.tagName) ? line.tagName : 'DIV';
+    const choice = await Picker.choice({
+      title: 'Заголовок',
+      value,
+      options: [
+        { value: 'H1', label: '<span style="font-size:22px;font-weight:750">Крупный</span>' },
+        { value: 'H2', label: '<span style="font-size:18px;font-weight:700">Средний</span>' },
+        { value: 'H3', label: '<span style="font-size:15.5px;font-weight:650">Мелкий</span>' },
+        { value: 'DIV', label: 'Обычный текст' }
+      ]
     });
+    if (!choice || !choice.value) return;
+    withSelection(() => {
+      const rows = selectedLines();
+      const changed = rows.map(l => setLineTag(l, choice.value));
+      placeCaret(changed[changed.length - 1]);
+    });
+  }
 
-    selected = dates.includes(selected) ? selected : dates[0];
-    const d = DT.parse(selected);
-    cursor = new Date(d.getFullYear(), d.getMonth(), 1);
+  async function pickAlign() {
+    const line = currentLine();
+    const cur = line ? (ALIGN.find(c => line.classList.contains(c)) || 'al-l') : 'al-l';
+    const choice = await Picker.choice({
+      title: 'Выравнивание',
+      value: cur,
+      options: [
+        { value: 'al-l', label: 'По левому краю' },
+        { value: 'al-c', label: 'По центру' },
+        { value: 'al-r', label: 'По правому краю' },
+        { value: 'al-j', label: 'По ширине' }
+      ]
+    });
+    if (!choice || !choice.value) return;
+    withSelection(() => {
+      selectedLines().forEach(l => {
+        ALIGN.forEach(c => l.classList.remove(c));
+        if (choice.value !== 'al-l') l.classList.add(choice.value);
+      });
+    });
+  }
+
+  async function pickList() {
+    const choice = await Picker.choice({
+      title: 'Список',
+      value: 'ul',
+      options: [
+        { value: 'ul', label: '• точками' },
+        { value: 'ol', label: '1. цифрами' },
+        { value: 'ol-a', label: 'а. буквами' },
+        { value: 'off', label: 'Убрать список' }
+      ]
+    });
+    if (!choice || !choice.value) return;
+    withSelection(() => {
+      if (choice.value === 'off') {
+        // Снимать надо тем же видом списка, каким он поставлен: вызвать оба
+        // подряд значило выключить один и тут же включить другой.
+        const sel = window.getSelection();
+        const node = sel && sel.anchorNode;
+        const host = node && (node.nodeType === 1 ? node : node.parentElement);
+        const list = host && host.closest ? host.closest('ul, ol') : null;
+        if (list) {
+          document.execCommand(
+            list.tagName === 'UL' ? 'insertUnorderedList' : 'insertOrderedList', false, null);
+        }
+        return;
+      }
+      document.execCommand(
+        choice.value === 'ul' ? 'insertUnorderedList' : 'insertOrderedList', false, null);
+      if (choice.value === 'ol-a') {
+        const sel = window.getSelection();
+        const node = sel && sel.anchorNode;
+        const host = node && (node.nodeType === 1 ? node : node.parentElement);
+        const ol = host && host.closest ? host.closest('ol') : null;
+        if (ol) ol.classList.add('lt-a');
+      }
+    });
+  }
+
+  function shiftIndent(step) {
+    withSelection(() => {
+      selectedLines().forEach(l => {
+        const cur = INDENT.findIndex(c => l.classList.contains(c));
+        const next = Math.max(-1, Math.min(INDENT.length - 1, cur + step));
+        INDENT.forEach(c => l.classList.remove(c));
+        if (next >= 0) l.classList.add(INDENT[next]);
+      });
+    });
+  }
+
+  function toggleQuote() {
+    withSelection(() => {
+      const rows = selectedLines();
+      const allQuotes = rows.every(l => l.tagName === 'BLOCKQUOTE');
+      const changed = rows.map(l => setLineTag(l, allQuotes ? 'DIV' : 'BLOCKQUOTE'));
+      placeCaret(changed[changed.length - 1]);
+    });
+  }
+
+  function insertDivider() {
+    withSelection(() => {
+      const line = currentLine() || noteArea().lastElementChild;
+      const hr = document.createElement('hr');
+      const after = document.createElement('div');
+      after.appendChild(document.createElement('br'));
+      if (line) { line.after(hr); hr.after(after); }
+      else { noteArea().appendChild(hr); noteArea().appendChild(after); }
+      placeCaret(after);
+    });
+  }
+
+  /* ---------- привязка кнопок ---------- */
+
+  const SIMPLE = { bold: 1, italic: 1, underline: 1, strikeThrough: 1 };
+
+  $$('.note-tool').forEach(btn => {
+    // Перехватываем только мышь. Перехват касания отменяет и нажатие,
+    // из-за чего кнопки на телефоне не срабатывали вовсе.
+    btn.addEventListener('mousedown', e => e.preventDefault());
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.fmt || btn.id;
+      if (kind === 'nItemBtn') {
+        withSelection(() => {
+          const lines = selectedLines();
+          if (!lines.length) return;
+          const allItems = lines.every(l => l.tagName === 'DIV' && l.classList.contains('ci'));
+          lines.forEach(l => {
+            const div = setLineTag(l, 'DIV');
+            if (allItems) { div.classList.remove('ci'); div.removeAttribute('data-done'); }
+            else div.classList.add('ci');
+          });
+        });
+        return;
+      }
+      if (SIMPLE[kind]) { withSelection(() => document.execCommand(kind, false, null)); return; }
+      if (kind === 'spoiler') { withSelection(() => wrapSelection('sp')); return; }
+      if (kind === 'highlight') { withSelection(() => wrapSelection('hl')); return; }
+      if (kind === 'link') { insertLink(); return; }
+      if (kind === 'heading') { pickHeading(); return; }
+      if (kind === 'align') { pickAlign(); return; }
+      if (kind === 'list') { pickList(); return; }
+      if (kind === 'indent') { shiftIndent(1); return; }
+      if (kind === 'outdent') { shiftIndent(-1); return; }
+      if (kind === 'quote') { toggleQuote(); return; }
+      if (kind === 'divider') { insertDivider(); return; }
+    });
+  });
+
+  /** Подсветка кнопок по тому, что под курсором */
+  function updateFmtState() {
+    const sel = window.getSelection();
+    const node = sel && sel.anchorNode;
+    const host = node && (node.nodeType === 1 ? node : node.parentElement);
+    const inNote = host && host.closest && host.closest('#nText');
+    const line = currentLine();
+
+    $$('.note-tool').forEach(btn => {
+      const kind = btn.dataset.fmt || btn.id;
+      let on = false;
+      if (!inNote) { btn.classList.remove('on'); return; }
+      if (SIMPLE[kind]) {
+        try { on = document.queryCommandState(kind); } catch (e) { on = false; }
+      } else if (kind === 'spoiler') on = !!host.closest('span.sp');
+      else if (kind === 'highlight') on = !!host.closest('span.hl');
+      else if (kind === 'link') on = !!host.closest('a');
+      else if (kind === 'quote') on = !!(line && line.tagName === 'BLOCKQUOTE');
+      else if (kind === 'heading') on = !!(line && /^H[123]$/.test(line.tagName));
+      else if (kind === 'nItemBtn') on = !!(line && line.classList.contains('ci'));
+      else if (kind === 'align') on = !!(line && ALIGN.some(c => line.classList.contains(c)));
+      btn.classList.toggle('on', on);
+    });
+  }
+
+  // Нажатие по квадратику пункта. Ловим по левому краю строки: держать там
+  // отдельный элемент нельзя, он мешал бы набору текста.
+  noteArea().addEventListener('click', e => {
+    const line = e.target.closest ? e.target.closest('div.ci') : null;
+    if (!line || line.parentNode !== noteArea()) return;
+    if (e.clientX - line.getBoundingClientRect().left > 28) return;
+    if (line.dataset.done === '1') line.removeAttribute('data-done');
+    else line.dataset.done = '1';
+    updateNoteMeta();
+    if (!noteEditing) saveNoteQuietly();
+  });
+
+  // Enter внутри пункта продолжает список. Пустой пункт вместо этого
+  // перестаёт быть пунктом — так список кончают.
+  noteArea().addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    const line = currentLine();
+    if (!line) return;
+    const item = line.classList.contains('ci');
+    const quote = line.tagName === 'BLOCKQUOTE';
+    if (!item && !quote) return;
+    if (line.textContent.replace(/​/g, '').trim()) return;
+
+    // Пустая оформленная строка + Enter — выход из оформления.
+    // Никуда не перескакиваем: остаёмся здесь же, но уже обычной строкой.
+    // Иначе цитату и список нечем закончить, и они множатся вниз.
+    e.preventDefault();
+    if (item) { line.classList.remove('ci'); line.removeAttribute('data-done'); }
+    if (quote) placeCaret(setLineTag(line, 'DIV'));
+    updateNoteMeta();
+  });
+
+  noteArea().addEventListener('input', () => {
+    normalizeLines();
+    updateNoteMeta();
+  });
+  noteArea().addEventListener('focus', normalizeLines);
+
+  $('#noteEdit').addEventListener('click', () => setNoteMode(true));
+
+  // Двойное касание по тексту — тот же переход в правку, но без поиска
+  // кнопки: палец уже там, где хочется что-то изменить.
+  let lastTap = 0;
+  $('#nText').addEventListener('click', () => {
+    const now = Date.now();
+    if (!noteEditing && now - lastTap < 320) setNoteMode(true);
+    lastTap = now;
+  });
+
+  $('#noteBack').addEventListener('click', closeSheets);
+  $('#noteSettings').addEventListener('click', () => {
+    // Черновик уже набран — переносим в него то, что напечатали,
+    // иначе настройки закроются и текст потеряется
+    draft.title = $('#nTitle').value.trim();
+    draft.note = noteValue();
+    openTaskSettings(undefined, false);
+  });
+  $('#noteSave').addEventListener('click', () => {
+    const wasNew = !draft.groupId;
+    if (!saveDraft()) return;
     closeSheets();
-    toast(dates.length > 1
-      ? `Задача встала на ${dates.length} ${plural(dates.length, 'день', 'дня', 'дней')}`
-      : (draft.groupId ? 'Сохранено' : 'Задача добавлена'));
+    toast(wasNew ? 'Задача добавлена' : 'Сохранено');
+  });
+
+  /* --- настройки задачи --- */
+  $('#taskSave').addEventListener('click', () => {
+    // Из редактора текста настройки только закрываются: правки уже в черновике,
+    // а сохраняет их галочка в самом редакторе.
+    if (!settingsStandalone) { $('#taskSheet').classList.remove('on'); return; }
+    const wasNew = !draft.groupId;
+    if (!saveDraft()) return;
+    closeSheets();
+    toast(wasNew ? 'Задача добавлена' : 'Сохранено');
   });
 
   $('#taskDelete').addEventListener('click', () => {
@@ -1831,6 +2700,12 @@ async function init() {
   bind();
   Picker.bind();
   setCollapsed(false);
+
+  // Страница и вид списка, выбранные в настройках. Приложение открывается
+  // там, где человек работает чаще всего, а не всегда на календаре.
+  listMode = Store.state.settings.startListMode === 'date' ? 'date' : 'sections';
+  const start = Store.state.settings.startView;
+  if (start === 'v-list') switchView('v-list', { record: false, resetHistory: true });
 
   Store.onChange(state => {
     render();

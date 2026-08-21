@@ -28,3 +28,6 @@ keystore.properties
 # Система
 .DS_Store
 Thumbs.db
+
+# Архивы проекта — их место не в репозитории, историю хранит git
+*.zip

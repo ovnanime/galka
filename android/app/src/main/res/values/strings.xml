@@ -13,8 +13,8 @@
     <string name="app_keywords">календарь, задачи, заметки, планы, напоминания</string>
     <string name="app_character">простой, понятный, аккуратный и визуально цельный</string>
     <string name="app_brand_association">галка как птица и галочка ✓ как символ выполненного дела</string>
-    <string name="package_name">com.ptashka.dayplan</string>
-    <string name="custom_url_scheme">com.ptashka.dayplan</string>
+    <string name="package_name">ru.ovnanime.galka</string>
+    <string name="custom_url_scheme">ru.ovnanime.galka</string>
     <string name="exit_title">Выход</string>
     <string name="exit_message">Вы точно хотите выйти?</string>
     <string name="exit_cancel">Отмена</string>

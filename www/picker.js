@@ -186,8 +186,11 @@ const Picker = (() => {
       const choice = e.target.closest('[data-choice]');
       if (choice) {
         const raw = choice.dataset.choice;
-        // Обёртка нужна, чтобы отличить выбор варианта «Нет» от отмены окна
-        finish({ value: raw === '' ? null : Number(raw) });
+        // Обёртка нужна, чтобы отличить выбор варианта «Нет» от отмены окна.
+        // Значение бывает и числом (минуты напоминания), и словом
+        // (вид заголовка, выравнивание) — переводим в число только цифры.
+        const value = raw === '' ? null : (/^-?\d+$/.test(raw) ? Number(raw) : raw);
+        finish({ value });
         closePicker();
       }
     });

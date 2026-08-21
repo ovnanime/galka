@@ -1,4 +1,4 @@
-package com.ptashka.dayplan;
+package ru.ovnanime.galka;
 
 import android.app.AlertDialog;
 import android.content.Intent;

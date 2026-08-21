@@ -11,16 +11,16 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
-        <meta-data android:name="com.ptashka.dayplan.SHORT_NAME" android:value="@string/app_short_name" />
-        <meta-data android:name="com.ptashka.dayplan.SLOGAN" android:value="@string/app_slogan" />
-        <meta-data android:name="com.ptashka.dayplan.DEVELOPER" android:value="@string/app_developer" />
-        <meta-data android:name="com.ptashka.dayplan.CATEGORY" android:value="@string/app_category" />
-        <meta-data android:name="com.ptashka.dayplan.PRINCIPLE" android:value="@string/app_principle" />
-        <meta-data android:name="com.ptashka.dayplan.STYLE" android:value="@string/app_style" />
-        <meta-data android:name="com.ptashka.dayplan.FEATURES" android:value="@string/app_features" />
-        <meta-data android:name="com.ptashka.dayplan.KEYWORDS" android:value="@string/app_keywords" />
-        <meta-data android:name="com.ptashka.dayplan.CHARACTER" android:value="@string/app_character" />
-        <meta-data android:name="com.ptashka.dayplan.BRAND_ASSOCIATION" android:value="@string/app_brand_association" />
+        <meta-data android:name="ru.ovnanime.galka.SHORT_NAME" android:value="@string/app_short_name" />
+        <meta-data android:name="ru.ovnanime.galka.SLOGAN" android:value="@string/app_slogan" />
+        <meta-data android:name="ru.ovnanime.galka.DEVELOPER" android:value="@string/app_developer" />
+        <meta-data android:name="ru.ovnanime.galka.CATEGORY" android:value="@string/app_category" />
+        <meta-data android:name="ru.ovnanime.galka.PRINCIPLE" android:value="@string/app_principle" />
+        <meta-data android:name="ru.ovnanime.galka.STYLE" android:value="@string/app_style" />
+        <meta-data android:name="ru.ovnanime.galka.FEATURES" android:value="@string/app_features" />
+        <meta-data android:name="ru.ovnanime.galka.KEYWORDS" android:value="@string/app_keywords" />
+        <meta-data android:name="ru.ovnanime.galka.CHARACTER" android:value="@string/app_character" />
+        <meta-data android:name="ru.ovnanime.galka.BRAND_ASSOCIATION" android:value="@string/app_brand_association" />
 
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
